@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import {
+  DefaultChatTransport,
   useAuthComplete,
   useChat,
   useChatModels,
@@ -8,11 +9,10 @@ import {
   Button,
   ChatError,
   ChatThread,
+  EffortSelector,
   ModelSelector,
   PromptInput,
 } from 'martin-ai/elements'
-
-import { createChatTransport } from './flow-token.ts'
 
 // 조립형: martin-ai/elements의 조각과 useChat, useChatModels로 만든 좁은 사이드 패널
 export function AssembledScreen() {
@@ -38,7 +38,10 @@ export function AssembledScreen() {
 }
 
 function SidePanelChat() {
-  const transport = useMemo(() => createChatTransport(), [])
+  const transport = useMemo(
+    () => new DefaultChatTransport({ api: '/api/chat' }),
+    [],
+  )
   const {
     messages,
     sendMessage,
@@ -49,13 +52,14 @@ function SidePanelChat() {
     setMessages,
     clearError,
   } = useChat({ transport })
-  const { models, model, setModel } = useChatModels('/api/models')
+  const { models, model, setModel, efforts, effort, setEffort, body } =
+    useChatModels('/api/models')
   const busy = status === 'submitted' || status === 'streaming'
 
   // FLOW 연결을 별도 창에서 마치면 마지막 답변을 다시 받는다
   useAuthComplete((event) => {
     if (event.status === 'connected' && !busy && messages.at(-1)?.role === 'assistant') {
-      void regenerate(model ? { body: { model } } : undefined)
+      void regenerate(body ? { body } : undefined)
     }
   })
 
@@ -93,15 +97,22 @@ function SidePanelChat() {
           status={status}
           placeholder="질문을 입력하세요"
           onSubmit={(text) =>
-            void sendMessage({ text }, model ? { body: { model } } : undefined)
+            void sendMessage({ text }, body ? { body } : undefined)
           }
           onStop={() => void stop()}
           actions={
-            <ModelSelector
-              models={models}
-              value={model}
-              onValueChange={setModel}
-            />
+            <>
+              <ModelSelector
+                models={models}
+                value={model}
+                onValueChange={setModel}
+              />
+              <EffortSelector
+                efforts={efforts}
+                value={effort}
+                onValueChange={setEffort}
+              />
+            </>
           }
         />
       </div>

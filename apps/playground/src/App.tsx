@@ -1,9 +1,7 @@
 import { useState } from 'react'
-import { useAuthComplete } from 'martin-ai'
 
 import { AssembledScreen } from './assembled-screen.tsx'
 import { BasicScreen } from './basic-screen.tsx'
-import { syncFlowToken } from './flow-token.ts'
 
 const TABS = [
   { id: 'basic', label: '기본형' },
@@ -14,9 +12,6 @@ type TabId = (typeof TABS)[number]['id']
 
 function App() {
   const [tab, setTab] = useState<TabId>('basic')
-
-  // FLOW 로그인 창의 연결 완료 알림이면 토큰을 저장하고, 연결 해제 알림이면 지운다
-  useAuthComplete(syncFlowToken)
 
   return (
     <div className="host">
