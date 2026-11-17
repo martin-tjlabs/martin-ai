@@ -17,6 +17,7 @@ import { jsonSchema, tool, type ToolSet } from "ai"
 // - 인증은 사용자(브라우저 세션)별이다. FLOW 인증 서버에서 Sign in with Google을 마치면
 //   FLOW가 자체 access token을 발급하고, 백엔드는 그 토큰을 세션에 묶어 메모리에만 둔다.
 // - 토큰은 브라우저로 보내지 않는다. MCP 요청의 Authorization 헤더에만 실린다.
+// - 서버를 다시 띄우면 세션, 토큰, 클라이언트 등록이 모두 비워진다. 연결 해제는 재시작으로 한다.
 
 export const FLOW_MCP_URL = "https://mcp.flow.tjlabscorp.com/mcp"
 const FLOW_AUTH_SERVER_URL = "https://mcp-auth.flow.tjlabscorp.com/"
@@ -51,14 +52,13 @@ const ALLOWED_TOOLS = new Set([
 ])
 
 // 브라우저가 보는 주소. 인증 서버가 로그인 뒤 이 주소의 콜백으로 돌아온다.
-// 개발 중에는 playground(Vite)가 /api를 이 서버로 프록시한다.
-const PUBLIC_URL = (process.env.PUBLIC_URL ?? "http://localhost:5173").replace(
-  /\/$/,
-  ""
-)
+// 개발 중에는 playground(Vite)가 /api를 이 서버로 프록시하므로 playground 주소를 쓴다.
+// PUBLIC_URL이 있으면 그대로 쓰고, 없으면 playground와 같은 PLAYGROUND_PORT(기본 5180)로 만든다.
+const PUBLIC_URL = (
+  process.env.PUBLIC_URL ??
+  `http://localhost:${process.env.PLAYGROUND_PORT ?? 5180}`
+).replace(/\/$/, "")
 export const CALLBACK_PATH = "/api/mcp/oauth/callback"
-// 호스트가 이미 가진 FLOW access token을 실어 보내는 요청 헤더
-export const FLOW_TOKEN_HEADER = "X-Flow-Access-Token"
 const REDIRECT_URL = `${PUBLIC_URL}${CALLBACK_PATH}`
 
 // 저장소 (메모리). 서버를 다시 띄우면 비워지고, 사용자는 FLOW 연결을 다시 해야 한다.
@@ -66,9 +66,6 @@ const REDIRECT_URL = `${PUBLIC_URL}${CALLBACK_PATH}`
 type FlowSession = {
   tokens?: OAuthTokens
   authorizationUrl?: string
-  // 이 세션의 채팅 요청이 X-Flow-Access-Token 헤더로 보낸 마지막 토큰.
-  // 채팅 안의 연결 해제 버튼은 호스트의 저장소를 모르므로, 해제할 때 이 값을 대신 폐기한다.
-  browserToken?: string
 }
 
 // 로그인 시도 하나. 연결 버튼이 여러 번 생겨도 각 시도의 PKCE 값이 섞이지 않도록
@@ -209,60 +206,17 @@ function createProvider(sessionId: string, attempt?: AuthAttempt): OAuthClientPr
   }
 }
 
-// 채팅 요청 하나에서 쓸 FLOW 도구. 토큰은 다음 순서로 찾는다.
-// 1. 브라우저가 보낸 토큰(presetToken): 호스트가 FLOW 웹 앱의 localStorage에서 읽어
-//    X-Flow-Access-Token 헤더로 보낸 것. 서버에 저장하지 않고 이 요청에만 쓴다.
-// 2. 이 세션이 FLOW 로그인(OAuth)으로 받아 둔 토큰. 만료되면 SDK가 refresh로 갱신한다.
-// 3. 둘 다 쓸 수 없으면 로그인 URL을 돌려주는 connectFlow 도구 하나만 준다.
-// 토큰이 있다고 믿지 않고 실제로 연결해 본다. MCP 서버가 거절하면 다음 순서로 넘어간다.
+// 채팅 요청 하나에서 쓸 FLOW 도구.
+// - 이 세션이 FLOW 로그인(OAuth)으로 받아 둔 토큰이 있으면 그 토큰으로 MCP에 연결해 허용 도구를 준다.
+//   만료되면 SDK가 refresh로 갱신한다.
+// - 토큰이 없거나 갱신도 실패하면 로그인 URL을 돌려주는 connectFlow 도구 하나만 준다.
 type FlowTools = {
   tools: ToolSet
   connected: boolean
   close: () => Promise<void>
 }
 
-export async function getFlowTools(
-  sessionId: string,
-  presetToken?: string
-): Promise<FlowTools> {
-  if (presetToken) {
-    getSession(sessionId).browserToken = presetToken
-  }
-  const flow = await resolveFlowTools(sessionId, presetToken)
-  // 연결 여부와 상관없이 채팅으로 연결 해제를 요청할 수 있게 한다
-  flow.tools = {
-    ...flow.tools,
-    requestFlowDisconnect: createDisconnectRequestTool(sessionId),
-  }
-  return flow
-}
-
-async function resolveFlowTools(
-  sessionId: string,
-  presetToken?: string
-): Promise<FlowTools> {
-  // 브라우저가 보낸 토큰을 쓰지 못한 이유. connectFlow 결과에 실어 화면에도 보인다.
-  let presetTokenIssue: string | undefined
-
-  if (presetToken) {
-    try {
-      return await connectFlowMcp({
-        type: "http",
-        url: FLOW_MCP_URL,
-        headers: { Authorization: `Bearer ${presetToken}` },
-        fetch: flowFetch,
-      })
-    } catch (error) {
-      presetTokenIssue = describePresetTokenIssue(presetToken, error)
-      // 토큰 값은 로그에 남기지 않는다. 형식과 JWT의 공개 클레임만 남긴다.
-      console.warn(
-        "[flow-mcp] 브라우저가 보낸 FLOW 토큰으로 연결하지 못해 로그인 흐름으로 넘어갑니다:",
-        presetTokenIssue,
-        inspectToken(presetToken)
-      )
-    }
-  }
-
+export async function getFlowTools(sessionId: string): Promise<FlowTools> {
   const session = getSession(sessionId)
 
   if (session.tokens) {
@@ -283,55 +237,10 @@ async function resolveFlowTools(
   }
 
   return {
-    tools: { connectFlow: createConnectTool(sessionId, presetTokenIssue) },
+    tools: { connectFlow: createConnectTool(sessionId) },
     connected: false,
     close: async () => {},
   }
-}
-
-// 토큰 값은 드러내지 않고, 진단에 필요한 형식 정보와 JWT의 공개 클레임만 뽑는다.
-function inspectToken(token: string) {
-  const info: Record<string, unknown> = {
-    length: token.length,
-    quoted: /^["'].*["']$/.test(token),
-    bearerPrefix: /^bearer\s/i.test(token),
-  }
-  const parts = token.split(".")
-  info.jwt = parts.length === 3
-  if (parts.length === 3) {
-    try {
-      const payload = JSON.parse(
-        Buffer.from(parts[1], "base64url").toString("utf8")
-      ) as Record<string, unknown>
-      info.iss = payload.iss
-      info.aud = payload.aud
-      info.scope = payload.scope ?? payload.scp
-      if (typeof payload.exp === "number") {
-        info.exp = new Date(payload.exp * 1000).toISOString()
-        info.expired = payload.exp * 1000 < Date.now()
-      }
-    } catch {
-      info.jwtPayload = "읽을 수 없음"
-    }
-  }
-  return info
-}
-
-function describePresetTokenIssue(token: string, error: unknown) {
-  const info = inspectToken(token)
-  const reasons: string[] = []
-  if (info.quoted) reasons.push("값이 따옴표로 감싸져 있습니다")
-  if (info.bearerPrefix) reasons.push('값에 "Bearer " 접두사가 들어 있습니다')
-  if (info.expired) reasons.push(`토큰이 만료되었습니다(${String(info.exp)})`)
-  const message = error instanceof Error ? error.message : String(error)
-  const status = /HTTP (\d{3})/.exec(message)?.[1]
-  const code = /"error":\s*"([^"]+)"/.exec(message)?.[1]
-  reasons.push(
-    status
-      ? `MCP 서버가 거절했습니다(HTTP ${status}${code ? `, ${code}` : ""})`
-      : `MCP 서버에 연결하지 못했습니다(${message.slice(0, 120)})`
-  )
-  return reasons.join(" · ")
 }
 
 // MCP에 연결해 허용 도구만 골라 돌려준다. 실패하면 연결을 닫고 오류를 그대로 던진다.
@@ -356,41 +265,7 @@ async function connectFlowMcp(
   }
 }
 
-// 채팅으로 연결 해제를 요청받았을 때 모델이 부르는 도구. 이 도구는 아무것도 해제하지 않는다.
-// 결과를 받은 채팅 화면이 "FLOW 연결 해제" 버튼을 보이고, 사람이 그 버튼을 눌러야 해제된다.
-// 모델이 잘못 부르거나 도구 결과에 섞인 지시(프롬프트 인젝션)를 따라도 버튼이 하나 뜰 뿐이다.
-export const DISCONNECT_API_PATH = "/api/mcp/disconnect"
-
-function createDisconnectRequestTool(sessionId: string) {
-  return tool({
-    description:
-      "사용자가 FLOW 연결을 해제(로그아웃)해 달라고 명시적으로 요청할 때만 부른다. " +
-      "이 도구는 직접 해제하지 않고, 화면에 사용자가 누를 'FLOW 연결 해제' 버튼을 띄운다.",
-    inputSchema: jsonSchema<Record<string, never>>({
-      type: "object",
-      properties: {},
-      additionalProperties: false,
-    }),
-    execute: async () => {
-      const session = getSession(sessionId)
-      if (!session.tokens && !session.browserToken) {
-        return {
-          status: "not-connected" as const,
-          service: "FLOW",
-          message: "FLOW에 연결되어 있지 않습니다.",
-        }
-      }
-      return {
-        status: "disconnect-requested" as const,
-        service: "FLOW",
-        disconnectApi: DISCONNECT_API_PATH,
-        message: "화면의 'FLOW 연결 해제' 버튼을 누르면 연결이 해제됩니다.",
-      }
-    },
-  })
-}
-
-function createConnectTool(sessionId: string, presetTokenIssue?: string) {
+function createConnectTool(sessionId: string) {
   return tool({
     description:
       "FLOW는 공간(sector)의 층별 현재 인원, 방문자 수, 시간대별 혼잡 패턴, 구역별 인원과 체류 시간, 와드(S-Ward) 동작 상태를 제공하는 서비스다. " +
@@ -421,10 +296,6 @@ function createConnectTool(sessionId: string, presetTokenIssue?: string) {
         status: "auth-required" as const,
         service: "FLOW",
         authorizationUrl: session.authorizationUrl,
-        // 브라우저의 토큰이 있었는데 쓰지 못했다면 그 이유
-        detail: presetTokenIssue
-          ? `브라우저의 FLOW 토큰을 쓰지 못했습니다: ${presetTokenIssue}`
-          : undefined,
         message:
           "FLOW 연결이 필요합니다. 화면의 'FLOW 연결' 버튼을 눌러 Google 계정으로 로그인해 주세요.",
       }
@@ -465,16 +336,8 @@ export async function handleOAuthCallback(params: {
       callbackIssuer: params.iss,
       fetchFn: flowFetch,
     })
-    const session = getSession(attempt.sessionId)
-    session.authorizationUrl = undefined
-    return {
-      ok: true,
-      message: "FLOW에 연결되었습니다. 이 창은 닫아도 됩니다.",
-      // 호스트가 localStorage에 저장할 수 있도록 access token만 브라우저로 보낸다.
-      // refresh token은 갱신에 client_secret이 필요하므로 서버에만 둔다.
-      accessToken: session.tokens?.access_token,
-      expiresIn: session.tokens?.expires_in,
-    }
+    getSession(attempt.sessionId).authorizationUrl = undefined
+    return { ok: true, message: "FLOW에 연결되었습니다. 이 창은 닫아도 됩니다." }
   } catch (error) {
     console.error("[flow-mcp] 토큰 교환 실패", error)
     // 인증 서버의 OAuth 오류 코드와 설명만 보인다(토큰이나 비밀키는 들어 있지 않다)
@@ -489,100 +352,17 @@ export async function handleOAuthCallback(params: {
 export type CallbackResult = {
   ok: boolean
   message: string
-  accessToken?: string
-  expiresIn?: number
-}
-
-// 연결 해제. 이 세션의 토큰과 브라우저가 보낸 토큰을 인증 서버에서 폐기하고 서버 메모리에서 지운다.
-// 폐기(RFC 7009)는 이 백엔드의 클라이언트 인증이 필요하다. 서버를 다시 띄워 등록 정보가 없으면
-// 폐기는 건너뛰고(토큰은 만료 시각까지 유효하게 남음) 서버 메모리만 비운다.
-export type DisconnectResult = {
-  // 인증 서버에서 폐기에 성공한 토큰 종류
-  revoked: Array<"refresh_token" | "access_token" | "browser_token">
-  // 폐기하지 못한 토큰과 이유
-  notRevoked: Array<{ token: string; reason: string }>
-}
-
-export async function disconnectFlow(
-  sessionId: string,
-  browserToken?: string
-): Promise<DisconnectResult> {
-  const session = getSession(sessionId)
-  const targets: Array<{
-    kind: DisconnectResult["revoked"][number]
-    token: string
-    hint: "refresh_token" | "access_token"
-  }> = []
-  if (session.tokens?.refresh_token) {
-    targets.push({ kind: "refresh_token", token: session.tokens.refresh_token, hint: "refresh_token" })
-  }
-  if (session.tokens?.access_token) {
-    targets.push({ kind: "access_token", token: session.tokens.access_token, hint: "access_token" })
-  }
-  // 헤더로 받은 토큰과 채팅 요청에서 기억해 둔 토큰. 세션의 access token과 같으면 한 번만 폐기한다.
-  for (const token of new Set([browserToken, session.browserToken])) {
-    if (token && token !== session.tokens?.access_token) {
-      targets.push({ kind: "browser_token", token, hint: "access_token" })
-    }
-  }
-
-  // 서버 메모리는 폐기 결과와 상관없이 먼저 비운다
-  session.tokens = undefined
-  session.browserToken = undefined
-  session.authorizationUrl = undefined
-  for (const [state, attempt] of attempts) {
-    if (attempt.sessionId === sessionId) attempts.delete(state)
-  }
-
-  const result: DisconnectResult = { revoked: [], notRevoked: [] }
-  for (const target of targets) {
-    const reason = await revokeToken(target.token, target.hint)
-    if (reason === undefined) {
-      result.revoked.push(target.kind)
-    } else {
-      result.notRevoked.push({ token: target.kind, reason })
-    }
-  }
-  return result
-}
-
-// 인증 서버의 /revoke에 토큰 하나를 폐기 요청한다. 성공하면 undefined, 실패하면 이유를 돌려준다.
-// 토큰 요청과 마찬가지로 client_secret_post로 클라이언트를 인증한다.
-async function revokeToken(token: string, hint: "refresh_token" | "access_token") {
-  if (!registeredClient) {
-    return "이 서버에 등록된 OAuth 클라이언트가 없어 폐기하지 못했습니다(서버 재시작). 만료 시각까지 유효합니다."
-  }
-  const body = new URLSearchParams({ token, token_type_hint: hint })
-  body.set("client_id", registeredClient.client_id)
-  if (registeredClient.client_secret) {
-    body.set("client_secret", registeredClient.client_secret)
-  }
-  try {
-    const response = await flowFetch(new URL("revoke", FLOW_AUTH_SERVER_URL), {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body,
-    })
-    // RFC 7009: 이미 무효인 토큰이어도 200을 돌려준다
-    if (response.ok) return undefined
-    const text = (await response.text()).slice(0, 200)
-    return `인증 서버가 거절했습니다(HTTP ${response.status}): ${text}`
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error)
-  }
 }
 
 // 콜백 창에 보여 줄 페이지. 결과를 같은 출처의 채팅 화면에 BroadcastChannel로 알리고 창을 닫는다.
 // (Google 로그인 페이지를 거치면 window.opener가 끊길 수 있어 postMessage 대신 쓴다.)
-// 연결에 성공하면 알림에 access token을 싣는다. 이 응답은 캐시하지 않는다(라우트에서 no-store).
+// 알림에는 결과만 싣고 토큰은 싣지 않는다.
 export function callbackPage(result: CallbackResult) {
   // 인라인 스크립트 안에 넣으므로 </script> 같은 문자열이 끼어들지 못하게 < 를 이스케이프한다
   const payload = JSON.stringify({
     type: "martin-ai:auth",
     status: result.ok ? "connected" : "failed",
     service: "FLOW",
-    accessToken: result.ok ? result.accessToken : undefined,
-    expiresIn: result.ok ? result.expiresIn : undefined,
   }).replace(/</g, "\\u003c")
   const escaped = result.message
     .replace(/&/g, "&amp;")
