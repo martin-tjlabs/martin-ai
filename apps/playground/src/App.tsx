@@ -1,7 +1,9 @@
 import { useState } from 'react'
+import { useAuthComplete } from 'martin-ai'
 
 import { AssembledScreen } from './assembled-screen.tsx'
 import { BasicScreen } from './basic-screen.tsx'
+import { saveFlowToken } from './flow-token.ts'
 
 const TABS = [
   { id: 'basic', label: '기본형' },
@@ -12,6 +14,9 @@ type TabId = (typeof TABS)[number]['id']
 
 function App() {
   const [tab, setTab] = useState<TabId>('basic')
+
+  // FLOW 로그인 창이 연결 완료를 알리면 받은 토큰을 localStorage에 저장한다
+  useAuthComplete(saveFlowToken)
 
   return (
     <div className="host">

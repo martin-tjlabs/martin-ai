@@ -1,10 +1,11 @@
-import { DefaultChatTransport } from 'martin-ai'
+import { DefaultChatTransport, type AuthCompleteEvent } from 'martin-ai'
 
-// FLOW 웹 앱이 access token을 저장하는 localStorage 키.
-// 실제 FLOW 앱의 키 이름(과 값 형식)에 맞춰 바꿔야 한다.
-export const FLOW_TOKEN_STORAGE_KEY = 'access_token'
+// FLOW MCP용 access token을 저장하는 localStorage 키.
+// FLOW 로그인(Sign in with Google)으로 서버가 받은 토큰을 여기에 저장하고, 요청마다 헤더로 보낸다.
+// FLOW 웹 앱의 'access_token'과 키를 나눠 서로의 토큰을 덮어쓰지 않게 한다.
+export const FLOW_TOKEN_STORAGE_KEY = 'flow_mcp_access_token'
 
-// localStorage는 출처(origin)마다 따로라서, 이 값은 FLOW 웹 앱과 같은 출처에서만 읽힌다.
+// localStorage는 출처(origin)마다 따로라서, 저장한 출처의 화면에서만 읽힌다.
 function readFlowToken() {
   try {
     return localStorage.getItem(FLOW_TOKEN_STORAGE_KEY)?.trim() || null
@@ -13,8 +14,20 @@ function readFlowToken() {
   }
 }
 
-// 요청할 때마다 localStorage를 다시 읽는다. FLOW 앱이 토큰을 갱신해도 최신 값이 간다.
-// 토큰이 없으면 헤더를 보내지 않고, 서버는 FLOW 로그인 흐름으로 넘어간다.
+// FLOW 로그인 창이 알려 준 토큰을 저장한다. 실패 알림이거나 토큰이 없으면 저장하지 않는다.
+export function saveFlowToken(event: AuthCompleteEvent) {
+  if (event.status !== 'connected' || event.service !== 'FLOW' || !event.accessToken) {
+    return
+  }
+  try {
+    localStorage.setItem(FLOW_TOKEN_STORAGE_KEY, event.accessToken)
+  } catch {
+    // 저장소를 쓸 수 없으면(시크릿 창 제한 등) 서버 세션의 토큰만 쓴다
+  }
+}
+
+// 요청할 때마다 localStorage를 다시 읽는다. 다시 로그인해 토큰이 바뀌어도 최신 값이 간다.
+// 토큰이 없거나 만료되어 거절되면, 서버는 세션의 토큰을 쓰거나 FLOW 로그인 흐름으로 넘어간다.
 export function createChatTransport(api = '/api/chat') {
   return new DefaultChatTransport({
     api,
