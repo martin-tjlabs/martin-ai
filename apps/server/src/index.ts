@@ -17,6 +17,16 @@ import {
 } from "ai"
 import { MockLanguageModelV4 } from "ai/test"
 import { Hono } from "hono"
+import { getCookie, setCookie } from "hono/cookie"
+
+import {
+  CALLBACK_PATH,
+  FLOW_TOKEN_HEADER,
+  callbackPage,
+  getFlowTools,
+  handleOAuthCallback,
+  newSessionId,
+} from "./flow-mcp.ts"
 
 // 모델: CHAT_MODELS가 비어 있으면 고정된 문장을 스트리밍하는 대본 모드.
 
@@ -122,10 +132,43 @@ const tools = {
   }),
 }
 
-const INSTRUCTIONS =
-  "당신은 간결하게 답하는 한국어 도우미입니다. 필요하면 마크다운을 쓰고, 현재 날짜나 시각이 필요하면 getCurrentTime 도구를 사용하세요."
+const INSTRUCTIONS = [
+  "당신은 간결하게 답하는 한국어 도우미입니다. 필요하면 마크다운을 쓰고, 현재 날짜나 시각이 필요하면 getCurrentTime 도구를 사용하세요.",
+  "공간의 인원, 방문자, 혼잡도, 구역, 와드(S-Ward) 같은 FLOW 데이터는 FLOW 도구로 조회하세요.",
+  "connectFlow 도구가 FLOW 연결이 필요하다고 알려 주면, 데이터를 추측하지 말고 화면의 'FLOW 연결' 버튼을 눌러 로그인해 달라고 짧게 안내하세요.",
+].join("\n")
 
-const app = new Hono()
+// 세션: 브라우저마다 익명 세션 쿠키 하나를 둔다. FLOW 토큰은 이 세션에 묶여 서버에만 있다.
+type Env = { Variables: { sessionId: string } }
+const SESSION_COOKIE = "martin_ai_sid"
+
+const app = new Hono<Env>()
+
+app.use("/api/*", async (c, next) => {
+  let sessionId = getCookie(c, SESSION_COOKIE)
+  if (!sessionId) {
+    sessionId = newSessionId()
+    setCookie(c, SESSION_COOKIE, sessionId, {
+      httpOnly: true,
+      sameSite: "Lax",
+      path: "/",
+    })
+  }
+  c.set("sessionId", sessionId)
+  await next()
+})
+
+// FLOW 인증 서버가 Sign in with Google 뒤 돌려보내는 곳. 별도 창에서 열린다.
+app.get(CALLBACK_PATH, async (c) => {
+  const result = await handleOAuthCallback({
+    code: c.req.query("code"),
+    state: c.req.query("state"),
+    iss: c.req.query("iss"),
+    error: c.req.query("error"),
+    sessionId: getCookie(c, SESSION_COOKIE),
+  })
+  return c.html(callbackPage(result), result.ok ? 200 : 400)
+})
 
 // 화면의 모델 선택 메뉴가 읽는 허용 목록. 대본 모드에서는 빈 목록.
 app.get("/api/models", (c) =>
@@ -149,13 +192,31 @@ app.post("/api/chat", async (c) => {
     model = requested
   }
 
+  // FLOW 도구는 요청마다 이 세션의 토큰으로 연결하고, 응답이 끝나면 연결을 닫는다.
+  // 호스트가 FLOW 웹 앱에 이미 로그인해 있으면 그 토큰을 헤더로 보낸다. 있으면 로그인을 건너뛴다.
+  const presetFlowToken = c.req.header(FLOW_TOKEN_HEADER)?.trim() || undefined
+  const flow = await getFlowTools(c.get("sessionId"), presetFlowToken)
+  const requestTools = { ...tools, ...flow.tools }
+  let closed = false
+  const closeFlow = () => {
+    if (closed) return
+    closed = true
+    flow.close().catch((error) => console.error("[flow-mcp] 닫기 실패", error))
+  }
+
   const result = streamText({
     model,
     instructions: INSTRUCTIONS,
     messages: await convertToModelMessages(messages),
-    tools,
+    tools: requestTools,
     stopWhen: isStepCount(5),
     abortSignal: c.req.raw.signal,
+    onEnd: closeFlow,
+    onAbort: closeFlow,
+    onError: ({ error }) => {
+      console.error(error)
+      closeFlow()
+    },
     // 추론을 내보내는 모델이 그 과정을 스트림에 싣도록 요청한다. 해당 회사가 아닌 옵션은 무시된다.
     providerOptions: {
       anthropic: { thinking: { type: "adaptive", display: "summarized" } },
@@ -167,7 +228,7 @@ app.post("/api/chat", async (c) => {
   return createUIMessageStreamResponse({
     stream: toUIMessageStream({
       stream: result.stream,
-      tools,
+      tools: requestTools,
       // 원인은 서버 로그에만 남기고, 클라이언트에는 일반 문구만 보낸다
       onError: (error) => {
         console.error(error)
