@@ -218,7 +218,7 @@ pnpm dlx shadcn@latest add message-scroller message bubble input-group trace cod
 처리 순서는 네 단계입니다.
 
 1. 요청의 `model`과 `effort`를 허용 목록과 대조합니다. `model`이 없으면 기본 모델을, `effort`가 없으면 모델의 기본 사고 수준을 쓰고, 목록에 없는 값이면 `400`으로 거절합니다.
-2. `convertToModelMessages`로 요청의 메시지를 모델 입력으로 바꿉니다.
+2. `convertToModelMessages`로 요청의 메시지를 모델 입력으로 바꿉니다. 응답 도중 중단하거나 끊겨 결과 없이 남은 도구 호출은 빼고 바꿉니다(`ignoreIncompleteToolCalls`). 그대로 두면 AI SDK가 `MissingToolResultsError`로 모델 호출을 거절해, 그 대화의 이후 요청이 모두 실패합니다. 도구 결과는 실행한 턴과 같은 형태로 다시 만들도록 도구 정보를 함께 넘기고, FLOW에 연결되지 않은 턴에도 FLOW 도구 결과가 같은 형태가 되도록 MCP 결과 변환(`mcpToModelOutput`과 같은 로직)을 함께 넘깁니다.
 3. `streamText`를 호출합니다. 시스템 지시문 1개, 샘플 도구 1개와 이 세션의 FLOW 도구, 최대 5단계(`isStepCount(5)`)로 제한합니다. FLOW 연결은 응답이 끝나면 닫습니다.
 4. `toUIMessageStream`과 `createUIMessageStreamResponse`로 스트림을 그대로 응답합니다.
 
@@ -239,8 +239,9 @@ GOOGLE_GENERATIVE_AI_API_KEY=...
 CHAT_MODELS=anthropic:claude-sonnet-5-5,openai:gpt-5,google:gemini-2.5-pro
 ```
 
-그 밖의 규칙은 여섯 가지입니다.
+그 밖의 규칙은 일곱 가지입니다.
 
+- Claude의 사고(thinking) 블록은 그것을 만든 대화 기록에 묶여 있어, 도구 목록이나 이전 기록이 바뀌면 API가 `Invalid signature in thinking block`으로 요청을 거절합니다. 이 앱은 FLOW 연결 상태에 따라 도구 목록이 바뀌므로(연결 전 `connectFlow`, 연결 후 FLOW 도구), Anthropic 요청에 `thinking.blockBinding.prefixMismatchBehavior: "drop_block"`을 넣어 어긋난 사고 블록은 버리고 요청을 진행합니다. AI SDK가 필요한 베타 헤더(`thinking-binding-controls-2026-08-01`)를 자동으로 붙입니다.
 - 화면에서는 `CHAT_MODELS`에 있는 모델만 고를 수 있습니다. 목록을 바꾸려면 `CHAT_MODELS`를 고치고 서버를 다시 띄웁니다. 클라이언트는 모델 ID만 보내며, 어떤 회사의 어떤 모델이 허용되는지는 서버가 정합니다.
 - 사고 수준(`effort`)도 서버가 정한 목록(`low`, `medium`, `high`, `xhigh`, `max`) 안에서만 고릅니다. 고르지 않으면 보내지 않고 모델의 기본값을 씁니다(예: Claude Opus 5.5와 Haiku 5.5는 `medium`, Sonnet 5.5는 `high`). provider마다 받는 옵션이 달라 서버가 바꿔 넘깁니다. Anthropic은 `effort`, OpenAI는 `reasoningEffort`, Google은 `thinkingConfig.thinkingLevel`이며, Google에는 `max`가 없어 `xhigh`로 넘깁니다. 개발 중 확인은 Anthropic 모델로만 했습니다.
 - `CHAT_MODELS`가 없으면 고정된 문장을 스트리밍하는 대본 모드로 동작합니다(AI SDK의 테스트용 mock 모델 사용). 키 없이도 화면을 시연할 수 있고, 도구 호출과 추론 표시는 실제 모델로 확인합니다.
@@ -364,6 +365,7 @@ allowBuilds:
 
 - [ ] 답변이 생성되는 대로 이어서 표시된다
 - [ ] 응답 도중 중단 버튼으로 멈출 수 있다
+- [ ] 도구 호출 도중에 중단해도 다음 질문이 오류 없이 진행된다
 - [ ] 서버를 끈 상태에서 전송하면 오류 문구가 보인다
 - [ ] 모델 API가 사용 한도 초과(`429`)나 혼잡(`503`, `529`)으로 실패하면 그에 맞는 문구가 보이고, 그 밖의 실패에는 일반 문구만 보인다
 - [ ] 마크다운(목록, 굵게, 코드 펜스)이 렌더링된다
@@ -395,3 +397,4 @@ allowBuilds:
 - [ ] 다른 브라우저(다른 세션)에서는 다시 연결해야 한다
 - [ ] 잘못되었거나 만료된 `state`로 콜백을 부르면 `400`과 안내 문구가 보인다
 - [ ] 서버를 다시 띄우면 연결했던 브라우저도 다음 FLOW 질문에서 다시 연결 버튼이 보인다
+- [ ] FLOW 연결 전에 나눈 대화에 이어서 연결하고, FLOW 도구로 답한 뒤에도 여러 턴을 오류 없이 이어 갈 수 있다
