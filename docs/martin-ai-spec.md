@@ -12,7 +12,7 @@
 
 ## 검증 목표
 
-데모가 답해야 할 질문은 다섯 가지이고, 다섯 개가 모두 통과하면 데모는 끝납니다.
+데모가 답해야 할 질문은 여섯 가지이고, 여섯 개가 모두 통과하면 데모는 끝납니다.
 
 | # | 확인할 것 | 통과 기준 |
 | --- | --- | --- |
@@ -21,6 +21,7 @@
 | V3 | AI SDK로 스트리밍 채팅이 되는가 | 응답이 생성되는 대로 표시되고, 중단·오류 표시·도구 호출 1종 표시가 된다. Anthropic, OpenAI, Google 모델에서 각각 확인한다 |
 | V4 | AI Elements를 re-export해 쓸 수 있는가 | 호스트가 `martin-ai``/elements`의 조각만으로 기본 `<Chat />`과 다른 레이아웃을 조립한다 |
 | V5 | pnpm만으로 모노레포가 굴러가는가 | Turborepo 없이 `pnpm dev`, `pnpm build` 두 명령으로 개발과 빌드가 된다 |
+| V6 | 인증이 필요한 MCP를 백엔드에 정적으로 붙일 수 있는가 | FLOW 웹 앱에 이미 로그인한 브라우저는 그 토큰으로 바로 FLOW 도구를 쓴다. 그렇지 않으면 연결 버튼이 보이고, 별도 창에서 Sign in with Google을 마치면 같은 질문에 FLOW 도구로 답한다. 서버가 로그인으로 받은 토큰은 브라우저에 노출되지 않는다 |
 
 ## 범위
 
@@ -32,12 +33,15 @@
 - 메시지 표시: 텍스트(마크다운), 추론 과정, 도구 호출과 그 결과
 - 입력: 전송, 응답 중단, 오류 표시, 모델 선택
 - 데모 서버: 채팅 엔드포인트, 모델 목록 엔드포인트, 샘플 도구 1개. 서버 설정으로 허용한 Anthropic·OpenAI·Google 모델 가운데 화면에서 고른 모델로 응답
+- MCP: 백엔드에 정적으로 붙인 FLOW MCP 서버 1개. 사용자별 FLOW 로그인(Sign in with Google)과 그 토큰의 서버 측 보관
 - 데모 앱: 기본형 화면과 조립형 화면
 
 ### 제외
 
 - 대화 저장과 세션 목록. 새로고침하면 대화가 사라집니다.
-- 인증, 사용자 구분, 사용량 제한
+- 앱 자체의 로그인, 사용자 계정, 사용량 제한. FLOW 연결을 위해 브라우저마다 익명 세션 쿠키 하나만 둡니다.
+- 토큰과 세션의 영속 저장. 서버를 다시 띄우면 FLOW에 다시 연결해야 합니다.
+- 화면에서 MCP 서버를 추가하거나 빼는 기능
 - npm 레지스트리 배포, 버전 관리, CI
 - 스타일 격리, 테마 커스터마이즈, 다크 모드
 - React 18과 SSR 환경(Next.js 등) 지원
@@ -55,7 +59,7 @@
 .
 ├─ apps/
 │  ├─ playground/           호스트 역할의 SPA (Vite + React 19, Tailwind 없음)
-│  └─ server/               채팅 엔드포인트 하나 (Hono, Node)
+│  └─ server/               채팅·모델 목록·FLOW 인증 콜백 엔드포인트 (Hono, Node)
 ├─ packages/
 │  └─ martin-ai/            유일한 라이브러리 패키지
 │     ├─ components.json    shadcn CLI 설정
@@ -86,12 +90,20 @@ flowchart LR
     env --> api
   end
   llm["LLM provider<br/>Anthropic, OpenAI, Google"]
+  subgraph flow["FLOW (배포됨)"]
+    mcp["MCP 서버<br/>mcp.flow.tjlabscorp.com/mcp"]
+    authsrv["인증 서버<br/>mcp-auth.flow.tjlabscorp.com<br/>Sign in with Google"]
+  end
   martin -->|"모델 목록"| models
   martin <-->|"요청(고른 모델 포함) / SSE 스트리밍 응답"| api
   api --> llm
+  api -->|"Bearer 토큰(세션별)"| mcp
+  api -->|"토큰 교환·갱신"| authsrv
+  popup["별도 창<br/>로그인"] --> authsrv
+  authsrv -->|"code"| callback["GET /api/mcp/oauth/callback"]
 ```
 
-브라우저는 LLM 키를 갖지 않습니다. `martin-ai`는 `/api/models`와 `/api/chat`만 호출하고, 키는 서버의 환경변수에만 둡니다.
+브라우저는 LLM 키와 FLOW 토큰을 갖지 않습니다. `martin-ai`는 `/api/models`와 `/api/chat`만 호출하고, 키는 서버의 환경변수에, FLOW 토큰은 서버 메모리에만 둡니다. 브라우저가 FLOW와 직접 주고받는 것은 별도 창에서의 로그인뿐입니다.
 
 ## 패키지 스펙: `martin-ai`
 
@@ -108,7 +120,7 @@ import "martin-ai/styles.css";
 
 | 진입점 | 내보내는 것 |
 | --- | --- |
-| `martin-ai` | `Chat` 컴포넌트와 타입, 모델 목록을 읽는 `useChatModels` 훅. AI SDK의 `useChat`, `DefaultChatTransport`도 그대로 다시 내보냄 |
+| `martin-ai` | `Chat` 컴포넌트와 타입, 모델 목록을 읽는 `useChatModels` 훅, 도구 인증 완료를 받는 `useAuthComplete` 훅. AI SDK의 `useChat`, `DefaultChatTransport`도 그대로 다시 내보냄 |
 | `martin-ai``/elements` | AI Elements 패턴과 그 밑단의 shadcn/ui 컴포넌트 |
 | `martin-ai``/styles.css` | 컴파일된 CSS 한 파일 |
 
@@ -191,11 +203,11 @@ pnpm dlx shadcn@latest add message-scroller message bubble input-group trace cod
 
 ## 데모 서버: `apps/server`
 
-서버는 LLM 키를 보관하고, 허용 모델 목록을 알려 주는 엔드포인트와 응답을 스트리밍하는 엔드포인트를 가집니다. Hono(Node)와 AI SDK 7로 작성하며 파일 하나로 끝냅니다.
+서버는 LLM 키를 보관하고, 허용 모델 목록을 알려 주는 엔드포인트와 응답을 스트리밍하는 엔드포인트, FLOW 로그인 콜백을 가집니다. Hono(Node)와 AI SDK 7로 작성하며, 채팅 처리(`src/index.ts`)와 FLOW MCP 연결(`src/flow-mcp.ts`) 두 파일로 나눕니다.
 
 | 항목 | 내용 |
 | --- | --- |
-| 엔드포인트 | `GET /api/models`, `POST /api/chat` |
+| 엔드포인트 | `GET /api/models`, `POST /api/chat`, `GET /api/mcp/oauth/callback` |
 | `GET /api/models` 응답 | `{ models: [{ id, provider, name }], defaultModel }`. 대본 모드에서는 `models`가 빈 배열이고 `defaultModel`이 `null` |
 | `POST /api/chat` 요청 | `useChat`이 보내는 JSON 그대로. `messages` 배열과, 화면에서 고른 모델 ID인 `model`(선택)을 사용 |
 | `POST /api/chat` 응답 | AI SDK UI message stream (`text/event-stream`) |
@@ -205,7 +217,7 @@ pnpm dlx shadcn@latest add message-scroller message bubble input-group trace cod
 
 1. 요청의 `model`을 허용 목록과 대조합니다. 없으면 기본 모델을 쓰고, 목록에 없는 값이면 `400`으로 거절합니다.
 2. `convertToModelMessages`로 요청의 메시지를 모델 입력으로 바꿉니다.
-3. `streamText`를 호출합니다. 시스템 지시문 1개, 도구 1개, 최대 5단계(`isStepCount(5)`)로 제한합니다.
+3. `streamText`를 호출합니다. 시스템 지시문 1개, 샘플 도구 1개와 이 세션의 FLOW 도구, 최대 5단계(`isStepCount(5)`)로 제한합니다. FLOW 연결은 응답이 끝나면 닫습니다.
 4. `toUIMessageStream`과 `createUIMessageStreamResponse`로 스트림을 그대로 응답합니다.
 
 고를 수 있는 모델은 서버 설정으로 정합니다. provider 패키지 세 개를 AI SDK의 provider registry에 등록해 두고, `CHAT_MODELS`에 `회사:모델명` 형식의 문자열을 쉼표로 나열합니다. 첫 번째가 기본 모델입니다.
@@ -233,13 +245,64 @@ CHAT_MODELS=anthropic:claude-sonnet-5-5,openai:gpt-5,google:gemini-2.5-pro
 - 오류의 원인은 서버 로그에만 남습니다. 클라이언트에는 `An error occurred.`라는 일반 문구만 전달됩니다.
 - CORS 설정은 두지 않습니다. playground의 개발 서버가 `/api`를 이 서버로 프록시합니다.
 
+### MCP 연결: FLOW
+
+FLOW MCP 서버를 백엔드에 정적으로 붙입니다. 어디에 연결하고 어떤 도구를 쓸지는 서버 코드가 정하고, 인증은 사용자(브라우저 세션)마다 따로 받습니다.
+
+| 항목 | 내용 |
+| --- | --- |
+| MCP 서버 | `https://mcp.flow.tjlabscorp.com/mcp` (Streamable HTTP). 코드에 고정 |
+| 인증 서버 | `https://mcp-auth.flow.tjlabscorp.com/`. 코드에 고정하고, MCP 서버가 알려 주는 주소와 다르면 진행하지 않음 |
+| 인증 방식 | MCP 인증 표준(OAuth 2.1). authorization code + PKCE(S256), `scope=flow`, `resource`는 MCP 서버 주소. 로그인 화면에서 Sign in with Google |
+| 클라이언트 등록 | 동적 등록(`/register`)으로 `client_id`, `client_secret`을 받아 서버 메모리에 보관. 모든 세션이 함께 씀 |
+| 클라이언트 인증 | 토큰 교환과 갱신에 `client_secret_post`를 고정. 인증 서버 메타데이터에는 `client_secret_basic`도 있지만 실제로는 받지 않음(`401 invalid_client: Missing client_id`) |
+| 콜백 주소 | `PUBLIC_URL` + `/api/mcp/oauth/callback`. `PUBLIC_URL` 기본값은 `http://localhost:5173`(playground) |
+| 미리 받은 토큰 | 요청 헤더 `X-Flow-Access-Token`. 호스트가 FLOW 웹 앱의 `localStorage` 키 `access_token`에서 읽어 보냄. 서버는 저장하지 않고 그 요청에만 씀 |
+| 허용 도구 | `about_flow`, `list_sectors`, `get_user_count`, `get_hourly_visitors`, `get_peak_hours`, `get_daily_history`, `compare_periods`, `get_zone_stats`, `get_ward_health`. 그 밖의 도구는 빼고 로그에 남김 |
+| 요청 대상 제한 | MCP 서버와 인증 서버 두 호스트에만 HTTPS로 요청 |
+
+채팅 요청마다 FLOW 토큰을 다음 순서로 찾습니다. 토큰이 있다고 믿지 않고 실제로 MCP에 연결해 보며, MCP 서버가 거절하면 조용히 다음 순서로 넘어갑니다.
+
+1. 요청 헤더 `X-Flow-Access-Token`. 브라우저가 FLOW 웹 앱에 이미 로그인해 있는 경우입니다. 있으면 FLOW 로그인 과정을 거치지 않습니다.
+2. 이 세션이 FLOW 로그인으로 받아 둔 토큰
+3. 둘 다 쓸 수 없으면 `connectFlow` 도구 하나만 모델에 줍니다.
+
+미리 받은 토큰은 호스트가 보냅니다. `localStorage`는 출처마다 따로라서 FLOW 웹 앱과 같은 출처의 호스트만 그 토큰을 읽을 수 있고, 저장 키 이름도 FLOW 앱이 정한 것이므로 `martin-ai`는 토큰을 직접 읽지 않습니다. 호스트는 `Chat`의 `transport` prop에 요청마다 헤더를 붙이는 `DefaultChatTransport`를 넘깁니다. FLOW 앱이 토큰을 갱신해도 다음 요청부터 새 값이 갑니다.
+
+```tsx
+const transport = new DefaultChatTransport({
+  api: "/api/chat",
+  headers: (): Record<string, string> => {
+    const token = localStorage.getItem("access_token")
+    return token ? { "X-Flow-Access-Token": token } : {}
+  },
+})
+
+<Chat transport={transport} />
+```
+
+로그인 흐름은 다섯 단계입니다.
+
+1. 서버는 `/api` 요청에 익명 세션 쿠키(`martin_ai_sid`, httpOnly, SameSite=Lax)가 없으면 새로 발급합니다.
+2. 채팅 요청에 쓸 수 있는 토큰이 없으면(위 3번) `connectFlow` 도구 하나만 모델에 줍니다.
+3. 모델이 `connectFlow`를 부르면, 서버는 PKCE와 `state`를 세션에 저장하고 로그인 URL을 만들어 `{ status: "auth-required", service: "FLOW", authorizationUrl }`을 도구 결과로 돌려줍니다. 화면은 이 결과를 "FLOW 연결" 버튼으로 보이고, 버튼을 누르면 별도 창에서 로그인 페이지를 엽니다.
+4. 로그인이 끝나면 인증 서버가 콜백으로 `code`를 보냅니다. 서버는 `state`로 세션을 찾고, 그 `state`를 발급한 세션과 쿠키의 세션이 같은지 확인한 뒤 `code`를 토큰으로 바꿔 세션에 저장합니다. 콜백 페이지는 결과를 `BroadcastChannel("martin-ai-auth")`로 채팅 화면에 알리고 창을 닫습니다.
+5. 채팅 화면은 연결 완료 알림을 받으면 마지막 답변을 다시 요청합니다. 이번에는 FLOW 도구가 주어지므로 같은 질문에 FLOW 데이터로 답합니다.
+
+토큰 관리 규칙은 네 가지입니다.
+
+- 서버가 로그인으로 받은 토큰은 브라우저로 보내지 않습니다. 미리 받은 토큰과 마찬가지로 MCP 요청의 `Authorization: Bearer` 헤더에만 싣고, 모델에도 보이지 않습니다. 토큰 값은 로그에 남기지 않습니다.
+- 토큰은 세션별로, PKCE 값은 로그인 시도(`state`)별로 서버 메모리에 둡니다. 연결 버튼이 여러 번 생겨도 각 시도가 섞이지 않습니다. 시도는 10분이 지나면 버리고, 콜백에서 한 번 쓰면 지웁니다.
+- 만료된 토큰은 MCP 서버가 `401`을 주면 refresh token으로 갱신합니다. 갱신에 실패하면 토큰을 지우고, 다음 요청에서 다시 `connectFlow`를 줍니다.
+- 한 세션의 MCP 연결을 다른 세션에서 쓰지 않습니다. 연결은 채팅 요청마다 만들고 응답이 끝나면 닫습니다.
+
 ## 데모 앱: `apps/playground`
 
 playground는 아무것도 갖추지 않은 호스트 역할을 합니다. Vite, React 19, TypeScript만 쓰고 Tailwind, shadcn, 라우터, 상태관리 라이브러리를 넣지 않습니다.
 
 | 화면 | 구성 | 확인하는 것 |
 | --- | --- | --- |
-| 기본형 | `<Chat />` 한 줄 | V1, V2, V3 |
+| 기본형 | `<Chat />` 한 줄. FLOW 토큰을 헤더로 싣는 `transport`만 넘김 | V1, V2, V3, V6 |
 | 조립형 | `martin-ai``/elements`의 조각과 `useChat`, `useChatModels`로 만든 좁은 사이드 패널 | V4 |
 
 - 의존성은 `martin-ai`(`workspace:*`), `react`, `react-dom` 세 개입니다.
@@ -324,3 +387,14 @@ allowBuilds:
 - [ ] 새로 clone한 저장소에서 `pnpm install`과 `pnpm dev`만으로 화면이 뜬다
 - [ ] `pnpm build`와 `pnpm typecheck`가 통과한다
 - [ ] 패키지 소스를 고치면 다시 빌드되어 playground에 반영된다
+
+### V6. MCP 연결 (FLOW)
+
+- [ ] `localStorage`의 `access_token`에 유효한 FLOW 토큰이 있으면 연결 버튼 없이 바로 FLOW 도구로 답한다
+- [ ] `localStorage`의 토큰이 잘못되었거나 만료되었으면 오류 없이 연결 버튼 흐름으로 넘어간다
+- [ ] FLOW에 연결하지 않은 상태에서 FLOW 데이터를 물으면 "FLOW 연결" 버튼이 보인다
+- [ ] 버튼을 누르면 별도 창에서 FLOW 로그인 페이지(Sign in with Google)가 열린다
+- [ ] 로그인을 마치면 창이 닫히고, 같은 질문에 FLOW 도구 호출과 그 결과로 답한다
+- [ ] 브라우저의 네트워크 요청과 저장소 어디에도 FLOW 토큰이 보이지 않는다
+- [ ] 다른 브라우저(다른 세션)에서는 다시 연결해야 한다
+- [ ] 잘못되었거나 만료된 `state`로 콜백을 부르면 `400`과 안내 문구가 보인다
