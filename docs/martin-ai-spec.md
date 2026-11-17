@@ -30,8 +30,8 @@
 
 - `martin-ai` 패키지: `<Chat />` 컴포넌트, AI Elements re-export, 컴파일된 CSS 한 파일
 - 메시지 표시: 텍스트(마크다운), 추론 과정, 도구 호출과 그 결과
-- 입력: 전송, 응답 중단, 오류 표시
-- 데모 서버: 채팅 엔드포인트 하나, 샘플 도구 1개, 서버 설정으로 고르는 Anthropic·OpenAI·Google 모델
+- 입력: 전송, 응답 중단, 오류 표시, 모델 선택
+- 데모 서버: 채팅 엔드포인트, 모델 목록 엔드포인트, 샘플 도구 1개. 서버 설정으로 허용한 Anthropic·OpenAI·Google 모델 가운데 화면에서 고른 모델로 응답
 - 데모 앱: 기본형 화면과 조립형 화면
 
 ### 제외
@@ -41,7 +41,8 @@
 - npm 레지스트리 배포, 버전 관리, CI
 - 스타일 격리, 테마 커스터마이즈, 다크 모드
 - React 18과 SSR 환경(Next.js 등) 지원
-- 파일 첨부, 모델 선택기, 대화 분기 등 그 밖의 AI Elements 패턴
+- 파일 첨부, 추론 강도(Effort) 선택, 대화 분기 등 그 밖의 AI Elements 패턴
+- 서버가 허용하지 않은 모델의 사용. 화면에서는 서버 목록에 있는 모델만 고를 수 있습니다.
 - 다국어. UI 문구는 한국어로 고정합니다.
 - 자동화 테스트. 타입 검사, 빌드, 수동 체크리스트로 대신합니다.
 - 백엔드 플랫폼(Supabase 등)과 작업 실행기(Turborepo)
@@ -78,16 +79,19 @@ flowchart LR
     playground --> martin
   end
   subgraph server["데모 서버 (Node)"]
-    env[".env<br/>CHAT_MODEL, 키 3개"]
+    env[".env<br/>CHAT_MODELS, 키 3개"]
+    models["GET /api/models<br/>허용 모델 목록"]
     api["POST /api/chat<br/>AI SDK streamText"]
+    env --> models
     env --> api
   end
   llm["LLM provider<br/>Anthropic, OpenAI, Google"]
-  martin <-->|"요청 / SSE 스트리밍 응답"| api
+  martin -->|"모델 목록"| models
+  martin <-->|"요청(고른 모델 포함) / SSE 스트리밍 응답"| api
   api --> llm
 ```
 
-브라우저는 LLM 키를 갖지 않습니다. `martin-ai`는 `/api/chat`만 호출하고, 키는 서버의 환경변수에만 둡니다.
+브라우저는 LLM 키를 갖지 않습니다. `martin-ai`는 `/api/models`와 `/api/chat`만 호출하고, 키는 서버의 환경변수에만 둡니다.
 
 ## 패키지 스펙: `martin-ai`
 
@@ -104,15 +108,16 @@ import "martin-ai/styles.css";
 
 | 진입점 | 내보내는 것 |
 | --- | --- |
-| `martin-ai` | `Chat` 컴포넌트와 타입. AI SDK의 `useChat`, `DefaultChatTransport`도 그대로 다시 내보냄 |
+| `martin-ai` | `Chat` 컴포넌트와 타입, 모델 목록을 읽는 `useChatModels` 훅. AI SDK의 `useChat`, `DefaultChatTransport`도 그대로 다시 내보냄 |
 | `martin-ai``/elements` | AI Elements 패턴과 그 밑단의 shadcn/ui 컴포넌트 |
 | `martin-ai``/styles.css` | 컴파일된 CSS 한 파일 |
 
-`Chat`의 props는 네 개로 제한합니다.
+`Chat`의 props는 다섯 개로 제한합니다.
 
 | prop | 타입 | 기본값 | 용도 |
 | --- | --- | --- | --- |
 | `api` | `string` | `"/api/chat"` | 채팅 엔드포인트 주소 |
+| `modelsApi` | `string` | `"/api/models"` | 모델 목록 엔드포인트 주소. 목록에 모델이 2개 이상이면 입력창에 선택 메뉴를 보임 |
 | `transport` | `ChatTransport` | 없음 | 주어지면 `api` 대신 사용 |
 | `placeholder` | `string` | `"메시지를 입력하세요"` | 입력창 안내 문구 |
 | `className` | `string` | 없음 | 루트 요소에 덧붙일 클래스 |
@@ -126,14 +131,15 @@ AI Elements는 설치하는 패키지가 아니라 문서의 코드를 복사해
 | 대화 스레드 | [Chat](https://ui.shadcn.com/docs/ai-elements/base/chat) | Message Scroller, Message, Bubble |
 | 답변 본문 | [Message](https://ui.shadcn.com/docs/ai-elements/base/message) | Streamdown(마크다운), Code Block(코드 펜스) |
 | 입력창 | [Prompt Input](https://ui.shadcn.com/docs/ai-elements/base/prompt-input) | Input Group |
+| 모델 선택 | [Model Selector](https://ui.shadcn.com/docs/ai-elements/base/model-selector) | Dropdown Menu, Input Group |
 | 추론 과정 | [Reasoning](https://ui.shadcn.com/docs/ai-elements/base/reasoning) | Trace |
 | 도구 호출 | [Tool](https://ui.shadcn.com/docs/ai-elements/base/tool) | Trace, Code Block |
 
 ```bash
-pnpm dlx shadcn@latest add message-scroller message bubble input-group trace code-block
+pnpm dlx shadcn@latest add message-scroller message bubble input-group trace code-block dropdown-menu
 ```
 
-- 패턴에서 선택 사항인 부분은 뺍니다. 메시지 액션(복사, 재시도)과 그 Tooltip, 입력창의 첨부와 모델 메뉴가 해당합니다.
+- 패턴에서 선택 사항인 부분은 뺍니다. 메시지 액션(복사, 재시도)과 그 Tooltip, 입력창의 첨부와 추론 강도(Effort) 메뉴가 해당합니다.
 - `components/ui/`는 고치지 않습니다. 업스트림이 바뀌면 `shadcn add <이름> --overwrite`로 다시 받습니다.
 - shadcn 설정은 [수동 설치 절차](https://ui.shadcn.com/docs/installation/manual)를 따릅니다. 프리미티브는 Base UI, 스타일은 `base-nova`입니다.
 - 내부 import 별칭은 `package.json#imports`의 `#components/*`, `#lib/*`, `#hooks/*`를 씁니다.
@@ -185,24 +191,26 @@ pnpm dlx shadcn@latest add message-scroller message bubble input-group trace cod
 
 ## 데모 서버: `apps/server`
 
-서버는 LLM 키를 보관하고 응답을 스트리밍하는 엔드포인트 하나만 가집니다. Hono(Node)와 AI SDK 7로 작성하며 파일 하나로 끝냅니다.
+서버는 LLM 키를 보관하고, 허용 모델 목록을 알려 주는 엔드포인트와 응답을 스트리밍하는 엔드포인트를 가집니다. Hono(Node)와 AI SDK 7로 작성하며 파일 하나로 끝냅니다.
 
 | 항목 | 내용 |
 | --- | --- |
-| 엔드포인트 | `POST /api/chat` |
-| 요청 | `useChat`이 보내는 JSON 그대로. `messages` 배열을 사용 |
-| 응답 | AI SDK UI message stream (`text/event-stream`) |
+| 엔드포인트 | `GET /api/models`, `POST /api/chat` |
+| `GET /api/models` 응답 | `{ models: [{ id, provider, name }], defaultModel }`. 대본 모드에서는 `models`가 빈 배열이고 `defaultModel`이 `null` |
+| `POST /api/chat` 요청 | `useChat`이 보내는 JSON 그대로. `messages` 배열과, 화면에서 고른 모델 ID인 `model`(선택)을 사용 |
+| `POST /api/chat` 응답 | AI SDK UI message stream (`text/event-stream`) |
 | 포트 | 8787 (`PORT`로 변경) |
 
-처리 순서는 세 단계입니다.
+처리 순서는 네 단계입니다.
 
-1. `convertToModelMessages`로 요청의 메시지를 모델 입력으로 바꿉니다.
-2. `streamText`를 호출합니다. 시스템 지시문 1개, 도구 1개, 최대 5단계(`isStepCount(5)`)로 제한합니다.
-3. `toUIMessageStream`과 `createUIMessageStreamResponse`로 스트림을 그대로 응답합니다.
+1. 요청의 `model`을 허용 목록과 대조합니다. 없으면 기본 모델을 쓰고, 목록에 없는 값이면 `400`으로 거절합니다.
+2. `convertToModelMessages`로 요청의 메시지를 모델 입력으로 바꿉니다.
+3. `streamText`를 호출합니다. 시스템 지시문 1개, 도구 1개, 최대 5단계(`isStepCount(5)`)로 제한합니다.
+4. `toUIMessageStream`과 `createUIMessageStreamResponse`로 스트림을 그대로 응답합니다.
 
-모델은 서버 설정으로 고릅니다. provider 패키지 세 개를 AI SDK의 provider registry에 등록해 두고, `CHAT_MODEL`에 `회사:모델명` 형식의 문자열을 적습니다.
+고를 수 있는 모델은 서버 설정으로 정합니다. provider 패키지 세 개를 AI SDK의 provider registry에 등록해 두고, `CHAT_MODELS`에 `회사:모델명` 형식의 문자열을 쉼표로 나열합니다. 첫 번째가 기본 모델입니다.
 
-| 회사 | 패키지 | 키 환경변수 | `CHAT_MODEL` 접두사 |
+| 회사 | 패키지 | 키 환경변수 | `CHAT_MODELS` 접두사 |
 | --- | --- | --- | --- |
 | Anthropic | `@ai-sdk/anthropic` | `ANTHROPIC_API_KEY` | `anthropic:` |
 | OpenAI | `@ai-sdk/openai` | `OPENAI_API_KEY` | `openai:` |
@@ -214,13 +222,13 @@ pnpm dlx shadcn@latest add message-scroller message bubble input-group trace cod
 ANTHROPIC_API_KEY=...
 OPENAI_API_KEY=...
 GOOGLE_GENERATIVE_AI_API_KEY=...
-CHAT_MODEL=anthropic:claude-sonnet-5-5
+CHAT_MODELS=anthropic:claude-sonnet-5-5,openai:gpt-5,google:gemini-2.5-pro
 ```
 
 그 밖의 규칙은 다섯 가지입니다.
 
-- 모델을 바꾸려면 `CHAT_MODEL`을 고치고 서버를 다시 띄웁니다. 화면에서 모델을 고르는 기능은 두지 않습니다.
-- `CHAT_MODEL`이 없으면 고정된 문장을 스트리밍하는 대본 모드로 동작합니다(AI SDK의 테스트용 mock 모델 사용). 키 없이도 화면을 시연할 수 있고, 도구 호출과 추론 표시는 실제 모델로 확인합니다.
+- 화면에서는 `CHAT_MODELS`에 있는 모델만 고를 수 있습니다. 목록을 바꾸려면 `CHAT_MODELS`를 고치고 서버를 다시 띄웁니다. 클라이언트는 모델 ID만 보내며, 어떤 회사의 어떤 모델이 허용되는지는 서버가 정합니다.
+- `CHAT_MODELS`가 없으면 고정된 문장을 스트리밍하는 대본 모드로 동작합니다(AI SDK의 테스트용 mock 모델 사용). 키 없이도 화면을 시연할 수 있고, 도구 호출과 추론 표시는 실제 모델로 확인합니다.
 - 샘플 도구는 `getCurrentTime` 하나입니다. 외부 호출 없이 서버 시각을 돌려주며, 도구 호출 UI를 확인하는 용도입니다.
 - 오류의 원인은 서버 로그에만 남습니다. 클라이언트에는 `An error occurred.`라는 일반 문구만 전달됩니다.
 - CORS 설정은 두지 않습니다. playground의 개발 서버가 `/api`를 이 서버로 프록시합니다.
@@ -232,7 +240,7 @@ playground는 아무것도 갖추지 않은 호스트 역할을 합니다. Vite,
 | 화면 | 구성 | 확인하는 것 |
 | --- | --- | --- |
 | 기본형 | `<Chat />` 한 줄 | V1, V2, V3 |
-| 조립형 | `martin-ai``/elements`의 조각과 `useChat`으로 만든 좁은 사이드 패널 | V4 |
+| 조립형 | `martin-ai``/elements`의 조각과 `useChat`, `useChatModels`로 만든 좁은 사이드 패널 | V4 |
 
 - 의존성은 `martin-ai`(`workspace:*`), `react`, `react-dom` 세 개입니다.
 - 두 화면은 라우터 없이 탭 상태로 전환합니다.
@@ -302,7 +310,9 @@ allowBuilds:
 - [ ] 마크다운(목록, 굵게, 코드 펜스)이 렌더링된다
 - [ ] 현재 시각을 물으면 `getCurrentTime` 호출과 그 결과가 표시된다
 - [ ] 추론을 내보내는 모델에서 추론 과정이 표시된다
-- [ ] `CHAT_MODEL`을 Anthropic, OpenAI, Google 모델로 바꿔 가며 위 항목을 다시 확인한다
+- [ ] `CHAT_MODELS`에 Anthropic, OpenAI, Google 모델을 넣고, 화면의 모델 선택 메뉴로 바꿔 가며 위 항목을 다시 확인한다
+- [ ] `CHAT_MODELS`에 모델이 하나뿐이거나 대본 모드이면 모델 선택 메뉴가 보이지 않는다
+- [ ] 목록에 없는 모델 ID로 `POST /api/chat`을 보내면 `400`으로 거절된다
 
 ### V4. AI Elements re-export
 
