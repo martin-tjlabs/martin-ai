@@ -14,13 +14,18 @@ function readFlowToken() {
   }
 }
 
-// FLOW 로그인 창이 알려 준 토큰을 저장한다. 실패 알림이거나 토큰이 없으면 저장하지 않는다.
-export function saveFlowToken(event: AuthCompleteEvent) {
-  if (event.status !== 'connected' || event.service !== 'FLOW' || !event.accessToken) {
-    return
-  }
+// FLOW 연결 알림에 맞춰 저장소를 맞춘다.
+// - connected: 로그인 창이 알려 준 토큰을 저장한다
+// - disconnected: 채팅 안의 "FLOW 연결 해제" 버튼으로 해제했으면 저장값을 지운다
+// 실패 알림이거나 FLOW가 아닌 서비스의 알림은 무시한다.
+export function syncFlowToken(event: AuthCompleteEvent) {
+  if (event.service !== 'FLOW') return
   try {
-    localStorage.setItem(FLOW_TOKEN_STORAGE_KEY, event.accessToken)
+    if (event.status === 'connected' && event.accessToken) {
+      localStorage.setItem(FLOW_TOKEN_STORAGE_KEY, event.accessToken)
+    } else if (event.status === 'disconnected') {
+      localStorage.removeItem(FLOW_TOKEN_STORAGE_KEY)
+    }
   } catch {
     // 저장소를 쓸 수 없으면(시크릿 창 제한 등) 서버 세션의 토큰만 쓴다
   }
