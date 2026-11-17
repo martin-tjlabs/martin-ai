@@ -167,6 +167,8 @@ app.get(CALLBACK_PATH, async (c) => {
     error: c.req.query("error"),
     sessionId: getCookie(c, SESSION_COOKIE),
   })
+  // 성공하면 페이지에 access token이 들어 있으므로 캐시하지 않는다
+  c.header("Cache-Control", "no-store")
   return c.html(callbackPage(result), result.ok ? 200 : 400)
 })
 

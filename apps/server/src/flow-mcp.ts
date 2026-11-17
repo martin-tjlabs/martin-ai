@@ -110,6 +110,19 @@ const clientMetadata: OAuthClientMetadata = {
   scope: "flow",
 }
 
+// 개발용: FLOW_DEBUG_PRINT_TOKENS=1일 때만 받은(또는 갱신한) 토큰을 서버 터미널에 출력한다.
+// 기본은 꺼져 있다. 토큰은 비밀값이므로 공유하는 로그나 화면에는 켜지 않는다.
+function printTokensForDebug(tokens: OAuthTokens) {
+  if (process.env.FLOW_DEBUG_PRINT_TOKENS !== "1") return
+  console.log("[flow-mcp] (개발용) FLOW 토큰을 받았습니다:", {
+    access_token: tokens.access_token,
+    token_type: tokens.token_type,
+    expires_in: tokens.expires_in,
+    scope: tokens.scope,
+    refresh_token: tokens.refresh_token,
+  })
+}
+
 // 세션 하나에 대한 OAuthClientProvider. @ai-sdk/mcp가 인증 서버 탐색, 클라이언트 등록,
 // PKCE, state 검증, 토큰 교환과 갱신을 처리하고, 결과를 여기에 저장한다.
 // attempt를 주면(콜백) 그 로그인 시도의 state와 PKCE 값으로 토큰을 교환한다.
@@ -146,6 +159,7 @@ function createProvider(sessionId: string, attempt?: AuthAttempt): OAuthClientPr
     tokens: () => session.tokens,
     saveTokens: (tokens) => {
       session.tokens = tokens
+      printTokensForDebug(tokens)
     },
     state: () => randomBytes(24).toString("base64url"),
     // SDK 순서: state() → saveState → saveAuthorizationServerInformation → saveCodeVerifier
@@ -370,7 +384,7 @@ export async function handleOAuthCallback(params: {
   iss?: string
   error?: string
   sessionId?: string
-}): Promise<{ ok: boolean; message: string }> {
+}): Promise<CallbackResult> {
   if (params.error) {
     return { ok: false, message: `로그인이 취소되었거나 실패했습니다. (${params.error})` }
   }
@@ -396,8 +410,16 @@ export async function handleOAuthCallback(params: {
       callbackIssuer: params.iss,
       fetchFn: flowFetch,
     })
-    getSession(attempt.sessionId).authorizationUrl = undefined
-    return { ok: true, message: "FLOW에 연결되었습니다. 이 창은 닫아도 됩니다." }
+    const session = getSession(attempt.sessionId)
+    session.authorizationUrl = undefined
+    return {
+      ok: true,
+      message: "FLOW에 연결되었습니다. 이 창은 닫아도 됩니다.",
+      // 호스트가 localStorage에 저장할 수 있도록 access token만 브라우저로 보낸다.
+      // refresh token은 갱신에 client_secret이 필요하므로 서버에만 둔다.
+      accessToken: session.tokens?.access_token,
+      expiresIn: session.tokens?.expires_in,
+    }
   } catch (error) {
     console.error("[flow-mcp] 토큰 교환 실패", error)
     // 인증 서버의 OAuth 오류 코드와 설명만 보인다(토큰이나 비밀키는 들어 있지 않다)
@@ -409,13 +431,25 @@ export async function handleOAuthCallback(params: {
   }
 }
 
+export type CallbackResult = {
+  ok: boolean
+  message: string
+  accessToken?: string
+  expiresIn?: number
+}
+
 // 콜백 창에 보여 줄 페이지. 결과를 같은 출처의 채팅 화면에 BroadcastChannel로 알리고 창을 닫는다.
 // (Google 로그인 페이지를 거치면 window.opener가 끊길 수 있어 postMessage 대신 쓴다.)
-export function callbackPage(result: { ok: boolean; message: string }) {
+// 연결에 성공하면 알림에 access token을 싣는다. 이 응답은 캐시하지 않는다(라우트에서 no-store).
+export function callbackPage(result: CallbackResult) {
+  // 인라인 스크립트 안에 넣으므로 </script> 같은 문자열이 끼어들지 못하게 < 를 이스케이프한다
   const payload = JSON.stringify({
     type: "martin-ai:auth",
     status: result.ok ? "connected" : "failed",
-  })
+    service: "FLOW",
+    accessToken: result.ok ? result.accessToken : undefined,
+    expiresIn: result.ok ? result.expiresIn : undefined,
+  }).replace(/</g, "\\u003c")
   const escaped = result.message
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
