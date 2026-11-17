@@ -7,5 +7,10 @@
     "node": ">=24",
     "pnpm": ">=12"
   },
-  "scripts": {}
+  "scripts": {
+    "dev": "pnpm --filter playground dev",
+    "preview": "pnpm --filter playground preview",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck"
+  }
 }
