@@ -21,7 +21,7 @@
 | V3 | AI SDK로 스트리밍 채팅이 되는가 | 응답이 생성되는 대로 표시되고, 중단·오류 표시·도구 호출 1종 표시가 된다. Anthropic, OpenAI, Google 모델에서 각각 확인한다 |
 | V4 | AI Elements를 re-export해 쓸 수 있는가 | 호스트가 `martin-ai``/elements`의 조각만으로 기본 `<Chat />`과 다른 레이아웃을 조립한다 |
 | V5 | pnpm만으로 모노레포가 굴러가는가 | Turborepo 없이 `pnpm dev`, `pnpm build` 두 명령으로 개발과 빌드가 된다 |
-| V6 | 인증이 필요한 MCP를 백엔드에 정적으로 붙일 수 있는가 | FLOW 웹 앱에 이미 로그인한 브라우저는 그 토큰으로 바로 FLOW 도구를 쓴다. 그렇지 않으면 연결 버튼이 보이고, 별도 창에서 Sign in with Google을 마치면 같은 질문에 FLOW 도구로 답한다. 서버가 로그인으로 받은 토큰은 브라우저에 노출되지 않는다 |
+| V6 | 인증이 필요한 MCP를 백엔드에 정적으로 붙일 수 있는가 | FLOW에 연결하지 않은 브라우저에는 연결 버튼이 보이고, 별도 창에서 Sign in with Google을 마치면 같은 질문에 FLOW 도구로 답한다. 받은 access token은 브라우저에 저장되어, 서버를 다시 띄워도 로그인 없이 FLOW 도구를 쓴다. refresh token은 브라우저로 나가지 않는다 |
 
 ## 범위
 
@@ -257,23 +257,23 @@ FLOW MCP 서버를 백엔드에 정적으로 붙입니다. 어디에 연결하�
 | 클라이언트 등록 | 동적 등록(`/register`)으로 `client_id`, `client_secret`을 받아 서버 메모리에 보관. 모든 세션이 함께 씀 |
 | 클라이언트 인증 | 토큰 교환과 갱신에 `client_secret_post`를 고정. 인증 서버 메타데이터에는 `client_secret_basic`도 있지만 실제로는 받지 않음(`401 invalid_client: Missing client_id`) |
 | 콜백 주소 | `PUBLIC_URL` + `/api/mcp/oauth/callback`. `PUBLIC_URL` 기본값은 `http://localhost:5173`(playground) |
-| 미리 받은 토큰 | 요청 헤더 `X-Flow-Access-Token`. 호스트가 FLOW 웹 앱의 `localStorage` 키 `access_token`에서 읽어 보냄. 서버는 저장하지 않고 그 요청에만 씀 |
+| 브라우저의 토큰 | 요청 헤더 `X-Flow-Access-Token`. 호스트가 `localStorage` 키 `flow_mcp_access_token`에서 읽어 보냄. 서버는 이 헤더 값을 저장하지 않고 그 요청에만 씀 |
 | 허용 도구 | `about_flow`, `list_sectors`, `get_user_count`, `get_hourly_visitors`, `get_peak_hours`, `get_daily_history`, `compare_periods`, `get_zone_stats`, `get_ward_health`. 그 밖의 도구는 빼고 로그에 남김 |
 | 요청 대상 제한 | MCP 서버와 인증 서버 두 호스트에만 HTTPS로 요청 |
 
 채팅 요청마다 FLOW 토큰을 다음 순서로 찾습니다. 토큰이 있다고 믿지 않고 실제로 MCP에 연결해 보며, MCP 서버가 거절하면 조용히 다음 순서로 넘어갑니다.
 
-1. 요청 헤더 `X-Flow-Access-Token`. 브라우저가 FLOW 웹 앱에 이미 로그인해 있는 경우입니다. 있으면 FLOW 로그인 과정을 거치지 않습니다.
+1. 요청 헤더 `X-Flow-Access-Token`. 이 브라우저가 전에 FLOW 로그인으로 받아 저장해 둔 토큰입니다. 유효하면 FLOW 로그인 과정을 거치지 않습니다.
 2. 이 세션이 FLOW 로그인으로 받아 둔 토큰
 3. 둘 다 쓸 수 없으면 `connectFlow` 도구 하나만 모델에 줍니다.
 
-미리 받은 토큰은 호스트가 보냅니다. `localStorage`는 출처마다 따로라서 FLOW 웹 앱과 같은 출처의 호스트만 그 토큰을 읽을 수 있고, 저장 키 이름도 FLOW 앱이 정한 것이므로 `martin-ai`는 토큰을 직접 읽지 않습니다. 호스트는 `Chat`의 `transport` prop에 요청마다 헤더를 붙이는 `DefaultChatTransport`를 넘깁니다. FLOW 앱이 토큰을 갱신해도 다음 요청부터 새 값이 갑니다.
+브라우저의 토큰은 호스트가 저장하고 보냅니다. 어디에 어떤 키로 저장할지는 호스트가 정하므로 `martin-ai`는 저장소를 직접 다루지 않습니다. 호스트는 `useAuthComplete`로 로그인 완료 알림을 받아 그 안의 `accessToken`을 `flow_mcp_access_token`에 저장하고, `Chat`의 `transport` prop에 요청마다 헤더를 붙이는 `DefaultChatTransport`를 넘깁니다. FLOW 웹 앱이 쓰는 `access_token` 키와는 나눠 서로의 토큰을 덮어쓰지 않으며, FLOW 웹 앱의 `access_token`은 읽지 않습니다.
 
 ```tsx
 const transport = new DefaultChatTransport({
   api: "/api/chat",
   headers: (): Record<string, string> => {
-    const token = localStorage.getItem("access_token")
+    const token = localStorage.getItem("flow_mcp_access_token")
     return token ? { "X-Flow-Access-Token": token } : {}
   },
 })
@@ -281,17 +281,26 @@ const transport = new DefaultChatTransport({
 <Chat transport={transport} />
 ```
 
+```tsx
+// 로그인 완료 알림을 받아 저장
+useAuthComplete((event) => {
+  if (event.status === "connected" && event.service === "FLOW" && event.accessToken) {
+    localStorage.setItem("flow_mcp_access_token", event.accessToken)
+  }
+})
+```
+
 로그인 흐름은 다섯 단계입니다.
 
 1. 서버는 `/api` 요청에 익명 세션 쿠키(`martin_ai_sid`, httpOnly, SameSite=Lax)가 없으면 새로 발급합니다.
 2. 채팅 요청에 쓸 수 있는 토큰이 없으면(위 3번) `connectFlow` 도구 하나만 모델에 줍니다.
 3. 모델이 `connectFlow`를 부르면, 서버는 PKCE와 `state`를 세션에 저장하고 로그인 URL을 만들어 `{ status: "auth-required", service: "FLOW", authorizationUrl }`을 도구 결과로 돌려줍니다. 화면은 이 결과를 "FLOW 연결" 버튼으로 보이고, 버튼을 누르면 별도 창에서 로그인 페이지를 엽니다.
-4. 로그인이 끝나면 인증 서버가 콜백으로 `code`를 보냅니다. 서버는 `state`로 세션을 찾고, 그 `state`를 발급한 세션과 쿠키의 세션이 같은지 확인한 뒤 `code`를 토큰으로 바꿔 세션에 저장합니다. 콜백 페이지는 결과를 `BroadcastChannel("martin-ai-auth")`로 채팅 화면에 알리고 창을 닫습니다.
+4. 로그인이 끝나면 인증 서버가 콜백으로 `code`를 보냅니다. 서버는 `state`로 세션을 찾고, 그 `state`를 발급한 세션과 쿠키의 세션이 같은지 확인한 뒤 `code`를 토큰으로 바꿔 세션에 저장합니다. 콜백 페이지는 결과를 `BroadcastChannel("martin-ai-auth")`로 채팅 화면에 알리고 창을 닫습니다. 성공했으면 알림에 access token을 싣고, 호스트가 이를 `localStorage`에 저장합니다. 이 콜백 응답은 캐시하지 않습니다(`Cache-Control: no-store`).
 5. 채팅 화면은 연결 완료 알림을 받으면 마지막 답변을 다시 요청합니다. 이번에는 FLOW 도구가 주어지므로 같은 질문에 FLOW 데이터로 답합니다.
 
 토큰 관리 규칙은 네 가지입니다.
 
-- 서버가 로그인으로 받은 토큰은 브라우저로 보내지 않습니다. 미리 받은 토큰과 마찬가지로 MCP 요청의 `Authorization: Bearer` 헤더에만 싣고, 모델에도 보이지 않습니다. 토큰 값은 로그에 남기지 않습니다.
+- 브라우저로 보내는 것은 access token뿐입니다. refresh token은 갱신에 `client_secret`이 필요하므로 서버에만 둡니다. 토큰은 MCP 요청의 `Authorization: Bearer` 헤더에만 싣고, 모델에는 보이지 않습니다. `localStorage`에 둔 토큰은 그 출처의 스크립트가 읽을 수 있다는 점(XSS 노출)을 감수한 선택입니다. 토큰 값은 로그에 남기지 않습니다. 예외로, 개발 중 확인용으로 `FLOW_DEBUG_PRINT_TOKENS=1`을 켜면 받거나 갱신한 토큰을 서버 터미널에만 출력합니다(기본은 꺼짐).
 - 토큰은 세션별로, PKCE 값은 로그인 시도(`state`)별로 서버 메모리에 둡니다. 연결 버튼이 여러 번 생겨도 각 시도가 섞이지 않습니다. 시도는 10분이 지나면 버리고, 콜백에서 한 번 쓰면 지웁니다.
 - 만료된 토큰은 MCP 서버가 `401`을 주면 refresh token으로 갱신합니다. 갱신에 실패하면 토큰을 지우고, 다음 요청에서 다시 `connectFlow`를 줍니다.
 - 한 세션의 MCP 연결을 다른 세션에서 쓰지 않습니다. 연결은 채팅 요청마다 만들고 응답이 끝나면 닫습니다.
@@ -390,11 +399,12 @@ allowBuilds:
 
 ### V6. MCP 연결 (FLOW)
 
-- [ ] `localStorage`의 `access_token`에 유효한 FLOW 토큰이 있으면 연결 버튼 없이 바로 FLOW 도구로 답한다
+- [ ] 로그인을 마치면 `localStorage`의 `flow_mcp_access_token`에 access token이 저장되고, refresh token은 저장되지 않는다
+- [ ] 서버를 다시 띄운 뒤에도 `flow_mcp_access_token`이 유효하면 연결 버튼 없이 바로 FLOW 도구로 답한다
 - [ ] `localStorage`의 토큰이 잘못되었거나 만료되었으면 오류 없이 연결 버튼 흐름으로 넘어간다
 - [ ] FLOW에 연결하지 않은 상태에서 FLOW 데이터를 물으면 "FLOW 연결" 버튼이 보인다
 - [ ] 버튼을 누르면 별도 창에서 FLOW 로그인 페이지(Sign in with Google)가 열린다
 - [ ] 로그인을 마치면 창이 닫히고, 같은 질문에 FLOW 도구 호출과 그 결과로 답한다
-- [ ] 브라우저의 네트워크 요청과 저장소 어디에도 FLOW 토큰이 보이지 않는다
+- [ ] 브라우저의 네트워크 요청과 저장소 어디에도 refresh token이 보이지 않는다
 - [ ] 다른 브라우저(다른 세션)에서는 다시 연결해야 한다
 - [ ] 잘못되었거나 만료된 `state`로 콜백을 부르면 `400`과 안내 문구가 보인다
