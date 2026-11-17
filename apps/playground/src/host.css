@@ -1,0 +1,147 @@
+/* 호스트 앱 자체의 평범한 CSS. martin-ai/styles.css(Tailwind 리셋 포함)가
+   이 스타일에 어떤 영향을 주는지 눈으로 보기 위해 일부러 기본 요소에도 스타일을 건다. */
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: Georgia, 'Times New Roman', serif;
+  color: #1f2933;
+  background: #f5f1e8;
+}
+
+.host {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.host-header {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 12px 24px;
+  background: #23395d;
+  color: #fdfcf7;
+}
+
+.host-header h1 {
+  margin: 0;
+  font-size: 1.4em;
+}
+
+.host-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.host-tabs button {
+  padding: 6px 14px;
+  border: 1px solid #fdfcf7;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.host-tabs button[aria-selected='true'] {
+  background: #fdfcf7;
+  color: #23395d;
+}
+
+.host-main {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 기본형: 가운데 칼럼 하나 */
+.host-basic {
+  height: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  border-inline: 1px solid #d8d2c4;
+}
+
+/* 조립형: 왼쪽은 호스트 본문, 오른쪽은 좁은 사이드 패널 */
+.host-assembled {
+  display: flex;
+  height: 100%;
+}
+
+.host-article {
+  flex: 1;
+  overflow: auto;
+  padding: 24px 32px;
+  line-height: 1.6;
+}
+
+.host-article h2 {
+  font-size: 1.5em;
+  margin: 0 0 0.5em;
+}
+
+.host-article p {
+  margin: 0 0 1em;
+}
+
+.host-article ul {
+  padding-left: 1.5em;
+  list-style: square;
+}
+
+.host-panel {
+  width: 360px;
+  border-left: 1px solid #d8d2c4;
+}
+
+/* 조립형 패널의 레이아웃. martin-ai의 테마 변수(--background 등)는 그대로 가져다 쓸 수 있다. */
+.panel-chat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #fbfaf6;
+  font-family: system-ui, sans-serif;
+}
+
+.panel-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #d8d2c4;
+}
+
+.panel-chat-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.panel-chat-subtitle {
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+.panel-chat-thread {
+  flex: 1;
+  min-height: 0;
+}
+
+.panel-chat-thread-content {
+  gap: 16px;
+  padding: 16px;
+}
+
+.panel-chat-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid #d8d2c4;
+  background: var(--background);
+}
