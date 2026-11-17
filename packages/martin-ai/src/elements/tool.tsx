@@ -1,7 +1,7 @@
 import { getToolName, type DynamicToolUIPart, type ToolUIPart } from "ai"
 import { WrenchIcon } from "lucide-react"
 
-import { isToolAuthRequired, isToolDisconnectRequested } from "../auth"
+import { isToolAuthRequired } from "../auth"
 
 import {
   CodeBlock,
@@ -19,7 +19,6 @@ import {
 } from "#components/ui/trace"
 
 import { ToolAuthRequired } from "./tool-auth"
-import { ToolDisconnectRequested } from "./tool-disconnect"
 
 // 출처: https://ui.shadcn.com/docs/ai-elements/base/tool
 // 승인(approval) 상태는 이번 범위가 아니라서 다루지 않는다.
@@ -56,11 +55,6 @@ export function ToolLine({ part, streaming }: ToolLineProps) {
   // 인증이 필요하다는 결과는 펼치는 줄 대신 연결 버튼으로 보인다
   if (part.state === "output-available" && isToolAuthRequired(part.output)) {
     return <ToolAuthRequired result={part.output} />
-  }
-
-  // 연결 해제 요청은 사람이 누를 해제 버튼으로 보인다
-  if (part.state === "output-available" && isToolDisconnectRequested(part.output)) {
-    return <ToolDisconnectRequested result={part.output} />
   }
 
   if (part.state === "output-available" || part.state === "output-error") {

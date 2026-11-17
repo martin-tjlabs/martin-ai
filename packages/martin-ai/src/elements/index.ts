@@ -13,13 +13,10 @@ export {
 export { Markdown, type MarkdownProps } from "./markdown"
 export { PromptInput, type PromptInputProps } from "./prompt-input"
 export { ModelSelector, type ModelSelectorProps } from "./model-selector"
+export { EffortSelector, type EffortSelectorProps } from "./effort-selector"
 export { ReasoningLine, type ReasoningLineProps } from "./reasoning"
 export { ToolLine, type ToolLineProps, type ToolPart } from "./tool"
 export { ToolAuthRequired, type ToolAuthRequiredProps } from "./tool-auth"
-export {
-  ToolDisconnectRequested,
-  type ToolDisconnectRequestedProps,
-} from "./tool-disconnect"
 export { ChatError, type ChatErrorProps } from "./chat-error"
 export { getMessageText } from "./utils"
 

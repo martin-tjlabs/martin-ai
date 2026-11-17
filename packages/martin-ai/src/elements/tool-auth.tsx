@@ -31,9 +31,6 @@ export function ToolAuthRequired({ result }: ToolAuthRequiredProps) {
           {service} 연결
         </Button>
       </div>
-      {result.detail && (
-        <p className="text-xs text-muted-foreground">{result.detail}</p>
-      )}
     </div>
   )
 }

@@ -5,6 +5,7 @@ import { cn } from "cn"
 
 import { ChatError } from "./elements/chat-error"
 import { ChatThread } from "./elements/chat-thread"
+import { EffortSelector } from "./elements/effort-selector"
 import { ModelSelector } from "./elements/model-selector"
 import { PromptInput } from "./elements/prompt-input"
 import { useAuthComplete } from "./auth"
@@ -38,13 +39,14 @@ export function Chat({
   const { messages, sendMessage, regenerate, stop, status, error } = useChat({
     transport: chatTransport,
   })
-  const { models, model, setModel } = useChatModels(modelsApi)
+  const { models, model, setModel, efforts, effort, setEffort, body } =
+    useChatModels(modelsApi)
 
   // 도구 인증(예: FLOW 연결)을 별도 창에서 마치면, 연결을 요구했던 마지막 답변을 다시 받는다.
   useAuthComplete((event) => {
     const busy = status === "submitted" || status === "streaming"
     if (event.status === "connected" && !busy && messages.at(-1)?.role === "assistant") {
-      void regenerate(model ? { body: { model } } : undefined)
+      void regenerate(body ? { body } : undefined)
     }
   })
 
@@ -66,17 +68,22 @@ export function Chat({
         <PromptInput
           status={status}
           placeholder={placeholder}
-          // 고른 모델은 요청 본문의 model로 보낸다. 허용 여부는 서버가 판단한다.
-          onSubmit={(text) =>
-            void sendMessage({ text }, model ? { body: { model } } : undefined)
-          }
+          // 고른 모델과 사고 수준은 요청 본문의 model, effort로 보낸다. 허용 여부는 서버가 판단한다.
+          onSubmit={(text) => void sendMessage({ text }, body ? { body } : undefined)}
           onStop={() => void stop()}
           actions={
-            <ModelSelector
-              models={models}
-              value={model}
-              onValueChange={setModel}
-            />
+            <>
+              <ModelSelector
+                models={models}
+                value={model}
+                onValueChange={setModel}
+              />
+              <EffortSelector
+                efforts={efforts}
+                value={effort}
+                onValueChange={setEffort}
+              />
+            </>
           }
         />
       </div>
