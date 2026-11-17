@@ -10,7 +10,7 @@ import {
   type OAuthClientProvider,
   type OAuthTokens,
 } from "@ai-sdk/mcp"
-import { jsonSchema, tool, type ToolSet } from "ai"
+import { jsonSchema, tool, type JSONValue, type ToolSet } from "ai"
 
 // FLOW MCP 서버를 정적으로 붙인다.
 // - 연결 대상(주소)과 허용 도구는 이 파일에 고정한다. 요청으로는 바꿀 수 없다.
@@ -203,6 +203,52 @@ function createProvider(sessionId: string, attempt?: AuthAttempt): OAuthClientPr
       }
       if (scope === "all" || scope === "client") registeredClient = undefined
     },
+  }
+}
+
+// 대화 기록을 모델 입력으로 바꿀 때 FLOW 도구 결과에 쓸 변환.
+// MCP 도구는 실행한 턴에 결과를 mcpToModelOutput으로 바꿔(텍스트 내용만) 모델에 준다.
+// 다음 턴에 같은 결과를 다른 형태(원본 JSON 전체)로 다시 보내면, Claude가 그 뒤의 사고(thinking)
+// 블록을 "다른 대화의 것"으로 보고 거절한다(Invalid signature in thinking block).
+// FLOW에 연결되어 있지 않은 턴(서버 재시작, 재연결 중)에도 같은 형태가 되도록, 허용 도구마다
+// 변환만 가진 도구를 둔다. 실행은 하지 않으며 convertToModelMessages에만 넘긴다.
+export const flowToolOutputConverters: ToolSet = Object.fromEntries(
+  [...ALLOWED_TOOLS].map((name) => [
+    name,
+    tool({
+      inputSchema: jsonSchema({ type: "object" }),
+      toModelOutput: mcpToModelOutput,
+    }),
+  ])
+)
+
+// @ai-sdk/mcp 2.0.99의 mcpToModelOutput을 그대로 옮겼다(공개되어 있지 않다).
+// SDK를 올릴 때 바뀌었는지 확인해야 한다. 달라지면 실행한 턴과 다음 턴의 결과 형태가 어긋난다.
+function mcpToModelOutput({ output }: { output: unknown }) {
+  if (typeof output === "string") return { type: "text" as const, value: output }
+  if (
+    output == null ||
+    typeof output !== "object" ||
+    !("content" in output) ||
+    !Array.isArray(output.content)
+  ) {
+    return { type: "json" as const, value: (output ?? null) as JSONValue }
+  }
+  return {
+    type: "content" as const,
+    value: (output.content as Array<Record<string, unknown>>).map((part) => {
+      if (part.type === "text" && "text" in part) {
+        return { type: "text" as const, text: part.text as string }
+      }
+      if (part.type === "image" && "data" in part && "mimeType" in part) {
+        return {
+          type: "file" as const,
+          mediaType: part.mimeType as string,
+          data: { type: "data" as const, data: part.data as string },
+        }
+      }
+      return { type: "text" as const, text: JSON.stringify(part) }
+    }),
   }
 }
 

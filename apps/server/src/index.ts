@@ -23,6 +23,7 @@ import { toClientErrorMessage } from "./client-error.ts"
 import {
   CALLBACK_PATH,
   callbackPage,
+  flowToolOutputConverters,
   getFlowTools,
   handleOAuthCallback,
   newSessionId,
@@ -243,7 +244,14 @@ app.post("/api/chat", async (c) => {
   const result = streamText({
     model,
     instructions: INSTRUCTIONS,
-    messages: await convertToModelMessages(messages),
+    // 응답 도중 중단하거나 끊겨 결과 없이 남은 도구 호출은 빼고 보낸다. 그대로 두면
+    // MissingToolResultsError로 모델 호출이 거절되고, 그 대화의 이후 요청이 모두 실패한다.
+    // 도구 결과는 실행한 턴과 같은 형태로 다시 만들어야 이전 사고 블록이 유효하다.
+    // FLOW에 연결되지 않은 턴에도 FLOW 도구 결과의 형태가 같도록 변환을 함께 넘긴다.
+    messages: await convertToModelMessages(messages, {
+      ignoreIncompleteToolCalls: true,
+      tools: { ...flowToolOutputConverters, ...requestTools },
+    }),
     tools: requestTools,
     stopWhen: isStepCount(5),
     abortSignal: c.req.raw.signal,
@@ -257,7 +265,12 @@ app.post("/api/chat", async (c) => {
     providerOptions: {
       // 사고 수준을 고르면 provider별 effort 옵션을 함께 싣는다
       anthropic: {
-        thinking: { type: "adaptive", display: "summarized" },
+        thinking: {
+          type: "adaptive",
+          display: "summarized",
+          // 그래도 기록이 어긋나면 요청을 실패시키지 않고 어긋난 사고 블록만 버린다
+          blockBinding: { prefixMismatchBehavior: "drop_block" },
+        },
         ...effortByProvider.anthropic,
       },
       openai: { reasoningSummary: "auto", ...effortByProvider.openai },
