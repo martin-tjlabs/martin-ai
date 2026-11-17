@@ -1,5 +1,9 @@
 import { useMemo } from 'react'
-import { DefaultChatTransport, useChat, useChatModels } from 'martin-ai'
+import {
+  useAuthComplete,
+  useChat,
+  useChatModels,
+} from 'martin-ai'
 import {
   Button,
   ChatError,
@@ -7,6 +11,8 @@ import {
   ModelSelector,
   PromptInput,
 } from 'martin-ai/elements'
+
+import { createChatTransport } from './flow-token.ts'
 
 // 조립형: martin-ai/elements의 조각과 useChat, useChatModels로 만든 좁은 사이드 패널
 export function AssembledScreen() {
@@ -32,14 +38,26 @@ export function AssembledScreen() {
 }
 
 function SidePanelChat() {
-  const transport = useMemo(
-    () => new DefaultChatTransport({ api: '/api/chat' }),
-    [],
-  )
-  const { messages, sendMessage, stop, status, error, setMessages, clearError } =
-    useChat({ transport })
+  const transport = useMemo(() => createChatTransport(), [])
+  const {
+    messages,
+    sendMessage,
+    regenerate,
+    stop,
+    status,
+    error,
+    setMessages,
+    clearError,
+  } = useChat({ transport })
   const { models, model, setModel } = useChatModels('/api/models')
   const busy = status === 'submitted' || status === 'streaming'
+
+  // FLOW 연결을 별도 창에서 마치면 마지막 답변을 다시 받는다
+  useAuthComplete((event) => {
+    if (event.status === 'connected' && !busy && messages.at(-1)?.role === 'assistant') {
+      void regenerate(model ? { body: { model } } : undefined)
+    }
+  })
 
   // 호스트에는 Tailwind가 없으므로 레이아웃은 host.css의 클래스로 잡는다.
   // martin-ai/styles.css에는 패키지 소스에 쓰인 유틸리티만 들어 있다.
