@@ -13,10 +13,13 @@ import {
 } from "#components/ui/dropdown-menu"
 import { InputGroupButton } from "#components/ui/input-group"
 
+import { ProviderLogo } from "./provider-logo"
+
 import type { ChatModel } from "../models"
 
 // 출처: https://ui.shadcn.com/docs/ai-elements/base/model-selector
-// 선택 사항인 추론 강도(Effort) 메뉴는 뺐다. PromptInput의 actions 자리에 둔다.
+// 사고 수준(Effort) 메뉴는 EffortSelector로 따로 둔다. 둘 다 PromptInput의 actions 자리에 둔다.
+// 버튼과 회사 이름 앞에 provider 로고(ProviderLogo)를 보인다.
 
 const PROVIDER_LABELS: Record<string, string> = {
   anthropic: "Anthropic",
@@ -59,6 +62,7 @@ export function ModelSelector({
           />
         }
       >
+        <ProviderLogo provider={current.provider} />
         <span className="max-w-40 truncate">{current.name}</span>
         <ChevronDownIcon />
       </DropdownMenuTrigger>
@@ -72,7 +76,8 @@ export function ModelSelector({
             <React.Fragment key={provider}>
               {index > 0 && <DropdownMenuSeparator />}
               <DropdownMenuGroup>
-                <DropdownMenuLabel>
+                <DropdownMenuLabel className="flex items-center gap-1.5">
+                  <ProviderLogo provider={provider} className="size-3.5" />
                   {PROVIDER_LABELS[provider] ?? provider}
                 </DropdownMenuLabel>
                 {models

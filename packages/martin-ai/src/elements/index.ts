@@ -13,6 +13,7 @@ export {
 export { Markdown, type MarkdownProps } from "./markdown"
 export { PromptInput, type PromptInputProps } from "./prompt-input"
 export { ModelSelector, type ModelSelectorProps } from "./model-selector"
+export { ProviderLogo, type ProviderLogoProps } from "./provider-logo"
 export { EffortSelector, type EffortSelectorProps } from "./effort-selector"
 export { ReasoningLine, type ReasoningLineProps } from "./reasoning"
 export { ToolLine, type ToolLineProps, type ToolPart } from "./tool"
