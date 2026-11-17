@@ -153,6 +153,7 @@ pnpm dlx shadcn@latest add message-scroller message bubble input-group trace cod
 ```
 
 - 패턴에서 선택 사항인 부분은 뺍니다. 메시지 액션(복사, 재시도)과 그 Tooltip, 입력창의 첨부가 해당합니다.
+- 모델 메뉴의 버튼과 회사 이름 앞에 provider 로고를 보입니다. Anthropic과 Google 로고는 Simple Icons(프로젝트 라이선스 CC0)의 SVG 경로를 `src/elements/provider-logo.tsx`에 그대로 둡니다. 패키지는 추가하지 않습니다. 로고가 없는 provider(OpenAI 등)는 일반 아이콘으로 보입니다. 로고는 각 회사의 상표이므로 실서비스에서는 브랜드 가이드라인을 따로 확인합니다.
 - `components/ui/`는 고치지 않습니다. 업스트림이 바뀌면 `shadcn add <이름> --overwrite`로 다시 받습니다.
 - shadcn 설정은 [수동 설치 절차](https://ui.shadcn.com/docs/installation/manual)를 따릅니다. 프리미티브는 Base UI, 스타일은 `base-nova`입니다.
 - 내부 import 별칭은 `package.json#imports`의 `#components/*`, `#lib/*`, `#hooks/*`를 씁니다.
