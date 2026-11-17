@@ -26,6 +26,12 @@ export const AUTH_CHANNEL = "martin-ai-auth"
 export type AuthCompleteEvent = {
   type: "martin-ai:auth"
   status: "connected" | "failed"
+  /** 연결한 서비스 이름. 예: "FLOW" */
+  service?: string
+  /** 연결에 성공했을 때 서버가 받은 access token. 저장 여부와 위치는 호스트가 정한다 */
+  accessToken?: string
+  /** access token의 유효 시간(초) */
+  expiresIn?: number
 }
 
 // 별도 창으로 로그인 페이지를 연다. 팝업이 막히면 새 탭으로 연다.
