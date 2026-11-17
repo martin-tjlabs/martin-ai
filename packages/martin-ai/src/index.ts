@@ -11,8 +11,13 @@ export {
   useAuthComplete,
   openAuthWindow,
   isToolAuthRequired,
+  isToolDisconnectRequested,
+  disconnectTool,
   type AuthCompleteEvent,
+  type DisconnectToolOptions,
+  type DisconnectToolResult,
   type ToolAuthRequired,
+  type ToolDisconnectRequested,
 } from "./auth"
 
 export { useChat, type UseChatHelpers, type UseChatOptions } from "@ai-sdk/react"
