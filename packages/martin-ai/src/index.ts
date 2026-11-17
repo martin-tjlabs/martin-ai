@@ -7,6 +7,13 @@ export {
   type ChatModelsResponse,
   type UseChatModelsResult,
 } from "./models"
+export {
+  useAuthComplete,
+  openAuthWindow,
+  isToolAuthRequired,
+  type AuthCompleteEvent,
+  type ToolAuthRequired,
+} from "./auth"
 
 export { useChat, type UseChatHelpers, type UseChatOptions } from "@ai-sdk/react"
 export {

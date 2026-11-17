@@ -15,6 +15,7 @@ export { PromptInput, type PromptInputProps } from "./prompt-input"
 export { ModelSelector, type ModelSelectorProps } from "./model-selector"
 export { ReasoningLine, type ReasoningLineProps } from "./reasoning"
 export { ToolLine, type ToolLineProps, type ToolPart } from "./tool"
+export { ToolAuthRequired, type ToolAuthRequiredProps } from "./tool-auth"
 export { ChatError, type ChatErrorProps } from "./chat-error"
 export { getMessageText } from "./utils"
 

@@ -7,6 +7,7 @@ import { ChatError } from "./elements/chat-error"
 import { ChatThread } from "./elements/chat-thread"
 import { ModelSelector } from "./elements/model-selector"
 import { PromptInput } from "./elements/prompt-input"
+import { useAuthComplete } from "./auth"
 import { useChatModels } from "./models"
 
 export type ChatProps = {
@@ -34,10 +35,18 @@ export function Chat({
     () => transport ?? new DefaultChatTransport({ api }),
     [transport, api]
   )
-  const { messages, sendMessage, stop, status, error } = useChat({
+  const { messages, sendMessage, regenerate, stop, status, error } = useChat({
     transport: chatTransport,
   })
   const { models, model, setModel } = useChatModels(modelsApi)
+
+  // 도구 인증(예: FLOW 연결)을 별도 창에서 마치면, 연결을 요구했던 마지막 답변을 다시 받는다.
+  useAuthComplete((event) => {
+    const busy = status === "submitted" || status === "streaming"
+    if (event.status === "connected" && !busy && messages.at(-1)?.role === "assistant") {
+      void regenerate(model ? { body: { model } } : undefined)
+    }
+  })
 
   return (
     <div
